@@ -1,0 +1,1388 @@
+/**
+ * lab_note Frontend Logic
+ * Includes:
+ * - Resizable sidebar with persistent width & stable vertical scrollbar
+ * - Right-click context menus for Projects, Experiments, and Protocols
+ * - Project hiding & restoring
+ * - In-place duplication with prefilled form for both Experiments and Protocols
+ * - Protocol ID auto-generation (no manual ID required)
+ * - Clean A4/PDF export
+ */
+
+const SVG_EXPAND = '<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>';
+const SVG_COMPRESS = '<path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>';
+
+// Toast Notification
+function showToast(message, type = "info") {
+  const container = document.getElementById("toast-container");
+  if (!container) return;
+
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type}`;
+
+  const iconMap = {
+    success: "✅",
+    error: "❌",
+    warning: "⚠️",
+    info: "ℹ️"
+  };
+  const icon = iconMap[type] || "ℹ️";
+
+  toast.innerHTML = `
+    <span class="toast-icon">${icon}</span>
+    <span class="toast-msg">${message}</span>
+    <button class="toast-close" onclick="this.parentElement.remove()">&times;</button>
+  `;
+
+  container.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.classList.add("show");
+  });
+
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => {
+      if (toast.parentElement) toast.remove();
+    }, 250);
+  }, 3200);
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return "";
+  try {
+    return dateStr.split(" ")[0];
+  } catch (e) {
+    return dateStr;
+  }
+}
+
+let allProjects = [];
+let allExperiments = [];
+let allProtocols = [];
+let currentSelectedProjectId = null;
+let selectedTag = null;
+let expandedProjects = new Set();
+
+// Hidden projects stored in localStorage
+let hiddenProjects = new Set(JSON.parse(localStorage.getItem("lab_note_hidden_projects") || "[]"));
+
+// Active state in editor
+let currentEditingProjectId = null;
+let currentEditingExpId = null;
+
+// Fullscreen states
+let isFullscreenInput = false;
+let isFullscreenPreview = false;
+
+document.addEventListener("DOMContentLoaded", () => {
+  initApp();
+  initResizer();
+  initContextMenu();
+});
+
+async function initApp() {
+  await refreshProjectsAndTree();
+  await loadProtocols();
+
+  const searchInput = document.getElementById("search-input");
+  if (searchInput) {
+    searchInput.addEventListener("input", (e) => {
+      filterAndRenderExperiments(e.target.value);
+    });
+  }
+
+  const markdownInput = document.getElementById("markdown-input");
+  if (markdownInput) {
+    markdownInput.addEventListener("input", updatePreview);
+  }
+}
+
+// ==========================================
+// Vertical Pane Resizer
+// ==========================================
+
+function initResizer() {
+  const resizer = document.getElementById("pane-resizer");
+  const sidebar = document.getElementById("app-sidebar");
+  if (!resizer || !sidebar) return;
+
+  const savedWidth = localStorage.getItem("lab_note_sidebar_w");
+  if (savedWidth) {
+    sidebar.style.width = `${savedWidth}px`;
+  }
+
+  let isResizing = false;
+
+  resizer.addEventListener("mousedown", (e) => {
+    isResizing = true;
+    resizer.classList.add("resizing");
+    document.body.style.cursor = "col-resize";
+    e.preventDefault();
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isResizing) return;
+    const newWidth = Math.min(Math.max(e.clientX, 200), 600);
+    sidebar.style.width = `${newWidth}px`;
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (isResizing) {
+      isResizing = false;
+      resizer.classList.remove("resizing");
+      document.body.style.cursor = "default";
+      const finalWidth = parseInt(sidebar.style.width);
+      if (finalWidth) {
+        localStorage.setItem("lab_note_sidebar_w", finalWidth);
+      }
+    }
+  });
+}
+
+// ==========================================
+// Custom Right-Click Context Menu
+// ==========================================
+
+function initContextMenu() {
+  const menu = document.getElementById("context-menu");
+
+  document.addEventListener("click", () => {
+    if (menu) menu.style.display = "none";
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && menu) {
+      menu.style.display = "none";
+    }
+  });
+}
+
+function showContextMenu(x, y, items) {
+  const menu = document.getElementById("context-menu");
+  if (!menu) return;
+
+  menu.innerHTML = ""; // Clear existing
+
+  items.forEach(item => {
+    if (item.divider) {
+      const divider = document.createElement("div");
+      divider.className = "context-menu-divider";
+      menu.appendChild(divider);
+      return;
+    }
+
+    const menuItem = document.createElement("div");
+    menuItem.className = "context-menu-item";
+    
+    if (item.icon) {
+      const iconSpan = document.createElement("span");
+      iconSpan.textContent = item.icon;
+      menuItem.appendChild(iconSpan);
+    }
+
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = item.label;
+    menuItem.appendChild(labelSpan);
+
+    menuItem.addEventListener("click", (e) => {
+      e.stopPropagation();
+      hideContextMenu();
+      if (typeof item.action === "function") {
+        item.action();
+      }
+    });
+
+    menu.appendChild(menuItem);
+  });
+
+  menu.style.display = "block";
+
+  // Prevent overflowing window boundaries
+  const menuRect = menu.getBoundingClientRect();
+  const posX = (x + menuRect.width > window.innerWidth) ? x - menuRect.width : x;
+  const posY = (y + menuRect.height > window.innerHeight) ? y - menuRect.height : y;
+
+  menu.style.left = `${Math.max(posX, 10)}px`;
+  menu.style.top = `${Math.max(posY, 10)}px`;
+}
+
+function hideContextMenu() {
+  const menu = document.getElementById("context-menu");
+  if (menu) menu.style.display = "none";
+}
+
+// ==========================================
+// SPA View Router
+// ==========================================
+
+function showView(viewName) {
+  const expView = document.getElementById("view-experiments");
+  const editView = document.getElementById("view-editor");
+  const protoView = document.getElementById("view-protocols");
+
+  const searchBox = document.getElementById("global-search-box");
+  const editorNavBack = document.getElementById("editor-nav-back");
+  const actionsDashboard = document.getElementById("actions-dashboard");
+  const actionsEditor = document.getElementById("actions-editor");
+
+  resetFullscreen();
+
+  if (viewName === "editor") {
+    if (expView) expView.style.display = "none";
+    if (protoView) protoView.style.display = "none";
+    if (editView) editView.style.display = "flex";
+
+    if (searchBox) searchBox.style.display = "none";
+    if (editorNavBack) editorNavBack.style.display = "flex";
+    if (actionsDashboard) actionsDashboard.style.display = "none";
+    if (actionsEditor) actionsEditor.style.display = "flex";
+  } else if (viewName === "protocols") {
+    if (expView) expView.style.display = "none";
+    if (editView) editView.style.display = "none";
+    if (protoView) protoView.style.display = "block";
+
+    if (searchBox) searchBox.style.display = "flex";
+    if (editorNavBack) editorNavBack.style.display = "none";
+    if (actionsDashboard) actionsDashboard.style.display = "flex";
+    if (actionsEditor) actionsEditor.style.display = "none";
+
+    document.querySelectorAll(".menu-item").forEach((el) => el.classList.remove("active"));
+    const protoMenu = document.getElementById("menu-protocols");
+    if (protoMenu) protoMenu.classList.add("active");
+  } else {
+    if (expView) expView.style.display = "block";
+    if (editView) editView.style.display = "none";
+    if (protoView) protoView.style.display = "none";
+
+    if (searchBox) searchBox.style.display = "flex";
+    if (editorNavBack) editorNavBack.style.display = "none";
+    if (actionsDashboard) actionsDashboard.style.display = "flex";
+    if (actionsEditor) actionsEditor.style.display = "none";
+
+    document.querySelectorAll(".menu-item").forEach((el) => el.classList.remove("active"));
+    const expMenu = document.getElementById("menu-experiments");
+    if (expMenu) expMenu.classList.add("active");
+  }
+}
+
+function backToExperimentList() {
+  showView("experiments");
+  filterAndRenderExperiments();
+}
+
+function switchTab(tabName) {
+  showView(tabName);
+}
+
+// ==========================================
+// Project Tree & Dashboard Logic
+// ==========================================
+
+async function refreshProjectsAndTree() {
+  try {
+    const res = await fetch("/api/projects");
+    allProjects = await res.json();
+
+    const expRes = await fetch("/api/experiments");
+    allExperiments = await expRes.json();
+
+    const visibleCount = allProjects.filter(p => !hiddenProjects.has(p.id)).length;
+    const badgeEl = document.getElementById("project-count-badge");
+    if (badgeEl) badgeEl.textContent = visibleCount;
+
+    renderProjectsTree();
+    renderTagFilters();
+    filterAndRenderExperiments();
+  } catch (e) {
+    console.error("Error refreshing projects", e);
+  }
+}
+
+function renderProjectsTree() {
+  const container = document.getElementById("project-tree-list");
+  if (!container) return;
+
+  const visibleProjects = allProjects.filter(p => !hiddenProjects.has(p.id));
+
+  if (visibleProjects.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 12px; font-size: 0.8rem; color: #64748b; text-align: center;">
+        表示中のプロジェクトがありません<br>
+        <button class="btn btn-secondary" onclick="openHiddenProjectsModal()" style="margin-top: 8px; font-size: 0.75rem; padding: 2px 8px;">
+          非表示プロジェクトを管理
+        </button>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = visibleProjects.map((p) => {
+    const isExpanded = expandedProjects.has(p.id);
+    const isSelected = currentSelectedProjectId === p.id;
+    const expCount = p.experiments ? p.experiments.length : 0;
+    
+    let expItemsHtml = "";
+    if (isExpanded && p.experiments && p.experiments.length > 0) {
+      expItemsHtml = p.experiments.map((e) => {
+        const icon = e.status === "completed" ? "✅" : (e.status === "failed" ? "❌" : "📝");
+        const isEditingThis = currentEditingProjectId === p.id && currentEditingExpId === e.id;
+        return `
+          <div class="experiment-tree-item ${isEditingThis ? 'active' : ''}" 
+               onclick="event.stopPropagation(); openEditorForExperiment('${p.id}', '${e.id}')"
+               oncontextmenu="handleExperimentContextMenu(event, '${p.id}', '${e.id}')">
+            <span>${icon}</span>
+            <span style="overflow: hidden; text-overflow: ellipsis;" title="${e.title}">${e.title}</span>
+          </div>
+        `;
+      }).join("");
+    } else if (isExpanded && expCount === 0) {
+      expItemsHtml = '<div style="padding: 4px 8px; font-size: 0.75rem; color: #64748b;">ノートなし</div>';
+    }
+
+    return `
+      <div class="project-node">
+        <div class="project-node-header ${isSelected ? 'active' : ''}" 
+             onclick="selectProject('${p.id}')"
+             oncontextmenu="handleProjectContextMenu(event, '${p.id}')">
+          <div class="project-node-left">
+            <span class="project-toggle-icon ${isExpanded ? 'expanded' : ''}" onclick="event.stopPropagation(); toggleProjectExpand('${p.id}')">▶</span>
+            <span>📁</span>
+            <span style="overflow: hidden; text-overflow: ellipsis;" title="${p.id}">${p.id}</span>
+          </div>
+          <div class="project-actions">
+            <span class="sidebar-badge">${expCount}</span>
+            <button class="btn-icon-mini" title="新規ノート作成" onclick="event.stopPropagation(); openEditorForNew('${p.id}')">➕</button>
+          </div>
+        </div>
+        ${isExpanded ? `<div class="project-experiments-list">${expItemsHtml}</div>` : ''}
+      </div>
+    `;
+  }).join("");
+}
+
+// Right-click on project
+function handleProjectContextMenu(event, projectId) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  const items = [
+    {
+      icon: "➕",
+      label: "新規ノート作成",
+      action: () => openEditorForNew(projectId)
+    },
+    {
+      icon: "👁️‍🗨️",
+      label: "プロジェクトの非表示",
+      action: () => hideProject(projectId)
+    },
+    { divider: true },
+    {
+      icon: "⚙️",
+      label: "非表示プロジェクトの表示",
+      action: () => openHiddenProjectsModal()
+    }
+  ];
+
+  showContextMenu(event.clientX, event.clientY, items);
+}
+
+// Right-click on experiment
+function handleExperimentContextMenu(event, projectId, expId) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  const items = [
+    {
+      icon: "📄",
+      label: "PDF出力",
+      action: () => exportNoteToPdf(projectId, expId)
+    },
+    {
+      icon: "📋",
+      label: "複製 (登録画面で編集)",
+      action: () => duplicateExperimentToEditor(projectId, expId)
+    },
+    { divider: true },
+    {
+      icon: "🗑️",
+      label: "削除",
+      action: () => deleteExperimentDirect(projectId, expId)
+    }
+  ];
+
+  showContextMenu(event.clientX, event.clientY, items);
+}
+
+// Project hiding & restoring
+function hideProject(projectId) {
+  hiddenProjects.add(projectId);
+  localStorage.setItem("lab_note_hidden_projects", JSON.stringify(Array.from(hiddenProjects)));
+  if (currentSelectedProjectId === projectId) {
+    currentSelectedProjectId = null;
+  }
+  refreshProjectsAndTree();
+}
+
+function restoreProject(projectId) {
+  hiddenProjects.delete(projectId);
+  localStorage.setItem("lab_note_hidden_projects", JSON.stringify(Array.from(hiddenProjects)));
+  renderHiddenProjectsModalList();
+  refreshProjectsAndTree();
+}
+
+function openHiddenProjectsModal() {
+  renderHiddenProjectsModalList();
+  document.getElementById("hidden-projects-modal").style.display = "flex";
+}
+
+function renderHiddenProjectsModalList() {
+  const container = document.getElementById("hidden-projects-list");
+  if (!container) return;
+
+  const hiddenArray = Array.from(hiddenProjects);
+  if (hiddenArray.length === 0) {
+    container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem;">非表示になっているプロジェクトはありません。</span>';
+    return;
+  }
+
+  container.innerHTML = hiddenArray.map(pid => `
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #f8fafc; border: 1px solid var(--border); border-radius: 4px;">
+      <span style="font-size: 0.85rem; font-weight: 500;">📁 ${pid}</span>
+      <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" onclick="restoreProject('${pid}')">
+        表示に戻す
+      </button>
+    </div>
+  `).join("");
+}
+
+function toggleProjectExpand(projectId) {
+  if (expandedProjects.has(projectId)) {
+    expandedProjects.delete(projectId);
+  } else {
+    expandedProjects.add(projectId);
+  }
+  renderProjectsTree();
+}
+
+function selectProject(projectId) {
+  if (currentSelectedProjectId === projectId) {
+    toggleProjectExpand(projectId);
+  } else {
+    currentSelectedProjectId = projectId;
+    expandedProjects.add(projectId);
+    renderProjectsTree();
+  }
+  
+  showView("experiments");
+  filterAndRenderExperiments();
+}
+
+function viewAllProjects() {
+  currentSelectedProjectId = null;
+  renderProjectsTree();
+  showView("experiments");
+  filterAndRenderExperiments();
+}
+
+function renderTagFilters() {
+  const container = document.getElementById("tag-filters");
+  if (!container) return;
+
+  const tags = new Set();
+  const visibleProjects = allProjects.filter(p => !hiddenProjects.has(p.id));
+  const targetList = allExperiments.filter(e => {
+    const isVisibleProj = visibleProjects.some(p => p.id === e.project_id);
+    const matchesProj = !currentSelectedProjectId || e.project_id === currentSelectedProjectId;
+    return isVisibleProj && matchesProj;
+  });
+
+  targetList.forEach((exp) => {
+    (exp.tags || []).forEach((t) => tags.add(t));
+  });
+
+  let html = `<div class="filter-chip ${selectedTag === null ? "active" : ""}" onclick="selectTag(null)">すべて</div>`;
+  tags.forEach((tag) => {
+    html += `<div class="filter-chip ${selectedTag === tag ? "active" : ""}" onclick="selectTag('${tag}')">#${tag}</div>`;
+  });
+  container.innerHTML = html;
+}
+
+function selectTag(tag) {
+  selectedTag = tag;
+  renderTagFilters();
+  const searchInput = document.getElementById("search-input");
+  filterAndRenderExperiments(searchInput ? searchInput.value : "");
+}
+
+function filterAndRenderExperiments(query = "") {
+  const container = document.getElementById("experiments-grid");
+  const titleEl = document.getElementById("experiments-view-title");
+  const descEl = document.getElementById("experiments-view-desc");
+  if (!container) return;
+
+  if (currentSelectedProjectId) {
+    const projObj = allProjects.find(p => p.id === currentSelectedProjectId);
+    if (titleEl) titleEl.textContent = `テーマ: ${currentSelectedProjectId}`;
+    if (descEl) descEl.textContent = projObj?.description || "このプロジェクト配下の実験ノート一覧";
+  } else {
+    if (titleEl) titleEl.textContent = "すべての実験ノート";
+    if (descEl) descEl.textContent = "全プロジェクト横断の実験プロトコル実施結果・記録";
+  }
+
+  const q = query.toLowerCase().trim();
+  const visibleProjects = allProjects.filter(p => !hiddenProjects.has(p.id));
+
+  const filtered = allExperiments.filter((exp) => {
+    const isVisibleProj = visibleProjects.some(p => p.id === exp.project_id);
+    if (!isVisibleProj) return false;
+
+    const matchesProject = !currentSelectedProjectId || exp.project_id === currentSelectedProjectId;
+    const matchesTag = !selectedTag || (exp.tags && exp.tags.includes(selectedTag));
+    const matchesQuery =
+      !q ||
+      exp.title.toLowerCase().includes(q) ||
+      (exp.tags && exp.tags.some((t) => t.toLowerCase().includes(q))) ||
+      (exp.project_id && exp.project_id.toLowerCase().includes(q));
+    return matchesProject && matchesTag && matchesQuery;
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div style="grid-column: 1/-1; text-align: center; padding: 36px; color: var(--text-muted);">
+        <p style="font-size: 1rem; margin-bottom: 6px;">該当する実験ノートが見つかりません</p>
+        <p style="font-size: 0.85rem;">「新規実験ノート」ボタンからこのテーマの最初の記録を作成しましょう！</p>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = filtered
+    .map((exp) => {
+      const statusClass = `status-${exp.status || "in_progress"}`;
+      const statusText =
+        exp.status === "completed"
+          ? "完了"
+          : exp.status === "failed"
+          ? "中断/要再試"
+          : "進行中";
+      const tagsHtml = (exp.tags || [])
+        .map((t) => `<span class="tag-badge">#${t}</span>`)
+        .join("");
+
+      return `
+      <div class="card" onclick="openEditorForExperiment('${exp.project_id}', '${exp.id}')"
+           oncontextmenu="handleExperimentContextMenu(event, '${exp.project_id}', '${exp.id}')">
+        <div>
+          <div class="card-top">
+            <span class="project-badge">📁 ${exp.project_id}</span>
+            <span class="status-badge ${statusClass}">${statusText}</span>
+          </div>
+          <div class="card-title">${exp.title}</div>
+          <div class="card-tags">${tagsHtml}</div>
+        </div>
+        <div class="card-footer">
+          <span>📅 ${formatDate(exp.date)}</span>
+          <span>📎 ${exp.attachment_count || 0} 件</span>
+        </div>
+      </div>
+    `;
+    })
+    .join("");
+}
+
+// ==========================================
+// In-Place Editor Operations
+// ==========================================
+
+async function openEditorForNew(projectId = null) {
+  const visibleProjects = allProjects.filter(p => !hiddenProjects.has(p.id));
+  currentEditingProjectId = projectId || currentSelectedProjectId || (visibleProjects[0]?.id || "");
+  currentEditingExpId = null;
+
+  showView("editor");
+  document.getElementById("editor-page-heading").textContent = "新規実験ノート作成";
+
+  await populateProjectSelect(currentEditingProjectId);
+  await populateProtocolSelect();
+
+  document.getElementById("input-project").disabled = false;
+  document.getElementById("input-title").value = "";
+  document.getElementById("input-date").value = new Date().toISOString().split("T")[0];
+  document.getElementById("input-status").value = "in_progress";
+  document.getElementById("input-tags").value = "";
+  document.getElementById("input-protocol").value = "";
+  document.getElementById("markdown-input").value = `## 目的\n\n## 実験手順・方法\n- [ ] ステップ1\n- [ ] ステップ2\n\n## 結果\n- \n\n## 考察 & 次のアクション\n- `;
+
+  updatePreview();
+  renderAttachments([]);
+
+  document.getElementById("btn-delete-exp").style.display = "none";
+}
+
+async function openEditorForExperiment(projectId, expId) {
+  currentEditingProjectId = projectId;
+  currentEditingExpId = expId;
+
+  expandedProjects.add(projectId);
+  renderProjectsTree();
+
+  showView("editor");
+  document.getElementById("editor-page-heading").textContent = "実験ノートの編集";
+
+  await populateProjectSelect(projectId);
+  await populateProtocolSelect();
+
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/experiments/${encodeURIComponent(expId)}`);
+    if (!res.ok) throw new Error("ノートの取得に失敗しました");
+    const exp = await res.json();
+
+    const projSelect = document.getElementById("input-project");
+    projSelect.value = exp.project_id;
+    projSelect.disabled = true;
+
+    document.getElementById("input-title").value = exp.title || "";
+    document.getElementById("input-date").value = exp.date || "";
+    document.getElementById("input-status").value = exp.status || "in_progress";
+    document.getElementById("input-tags").value = (exp.tags || []).join(", ");
+    document.getElementById("markdown-input").value = exp.content || "";
+    if (exp.protocol_id) {
+      document.getElementById("input-protocol").value = exp.protocol_id;
+    }
+
+    renderAttachments(exp.attachments || []);
+    updatePreview();
+
+    document.getElementById("btn-delete-exp").style.display = "inline-flex";
+  } catch (e) {
+    showToast("エラー: " + e.message, "error");
+    backToExperimentList();
+  }
+}
+
+// Duplicate experiment to editor (prefilled, uncommitted state)
+async function duplicateExperimentToEditor(projectId, expId) {
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/experiments/${encodeURIComponent(expId)}`);
+    if (!res.ok) throw new Error("複製元ノートの読み込みに失敗しました");
+    const original = await res.json();
+
+    await openEditorForNew(projectId);
+    document.getElementById("editor-page-heading").textContent = "新規実験ノート作成 (複製)";
+
+    document.getElementById("input-project").value = projectId;
+    document.getElementById("input-title").value = `${original.title} (コピー)`;
+    document.getElementById("input-date").value = new Date().toISOString().split("T")[0];
+    document.getElementById("input-status").value = "in_progress";
+    document.getElementById("input-tags").value = (original.tags || []).join(", ");
+    if (original.protocol_id) {
+      document.getElementById("input-protocol").value = original.protocol_id;
+    }
+    document.getElementById("markdown-input").value = original.content || "";
+
+    updatePreview();
+  } catch (e) {
+    showToast("複製エラー: " + e.message, "error");
+  }
+}
+
+async function populateProjectSelect(selectedProjectId = null) {
+  const selectEl = document.getElementById("input-project");
+  if (!selectEl) return;
+  selectEl.innerHTML = '<option value="">-- 研究テーマを選択 * --</option>';
+  const visibleProjects = allProjects.filter(p => !hiddenProjects.has(p.id));
+  visibleProjects.forEach((p) => {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = `📁 ${p.id}`;
+    if (p.id === selectedProjectId) {
+      opt.selected = true;
+    }
+    selectEl.appendChild(opt);
+  });
+}
+
+async function populateProtocolSelect(selectedProtocolId = null) {
+  const selectEl = document.getElementById("input-protocol");
+  if (!selectEl) return;
+  try {
+    const res = await fetch("/api/protocols");
+    allProtocols = await res.json();
+    selectEl.innerHTML = '<option value="">(プロトコルなし)</option>';
+    allProtocols.forEach((p) => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = `${p.title} (${p.category || "General"})`;
+      if (p.id === selectedProtocolId) {
+        opt.selected = true;
+      }
+      selectEl.appendChild(opt);
+    });
+  } catch (e) {
+    console.error("Error populating protocols", e);
+  }
+}
+
+async function applyProtocolTemplate(protocolId) {
+  try {
+    const res = await fetch(`/api/protocols/${encodeURIComponent(protocolId)}`);
+    if (!res.ok) return;
+    const proto = await res.json();
+    if (!document.getElementById("input-title").value) {
+      document.getElementById("input-title").value = `${proto.title}の検討`;
+    }
+    
+    const templateContent = `## 目的
+${proto.description || ""}
+
+## 採用プロトコル
+- 手順名: ${proto.title} (v${proto.version || "1.0"})
+
+### 手順チェックリスト
+${proto.content || "- [ ] ステップ1\n- [ ] ステップ2"}
+
+## 測定結果・観察
+- 
+
+## 考察 & 次のアクション
+- 
+`;
+    document.getElementById("markdown-input").value = templateContent;
+    updatePreview();
+  } catch (e) {
+    console.error("Failed to load protocol template", e);
+  }
+}
+
+function onProtocolDropdownChange(protocolId) {
+  if (!protocolId) return;
+  if (!document.getElementById("markdown-input").value.trim() || confirm("選択したプロトコルのテンプレート内容をノートに展開しますか？")) {
+    applyProtocolTemplate(protocolId);
+  }
+}
+
+function updatePreview() {
+  const markdownText = document.getElementById("markdown-input").value;
+  const previewContainer = document.getElementById("markdown-preview");
+  if (!previewContainer) return;
+
+  if (typeof marked !== "undefined") {
+    previewContainer.innerHTML = marked.parse(markdownText);
+  } else {
+    previewContainer.textContent = markdownText;
+  }
+}
+
+async function saveExperiment() {
+  const project_id = document.getElementById("input-project").value;
+  if (!project_id) {
+    showToast("研究テーマ（Project）を選択してください", "warning");
+    return;
+  }
+
+  const title = document.getElementById("input-title").value.trim();
+  if (!title) {
+    showToast("実験タイトルを入力してください", "warning");
+    return;
+  }
+
+  const date = document.getElementById("input-date").value;
+  const status = document.getElementById("input-status").value;
+  const protocol_id = document.getElementById("input-protocol").value;
+  const tags = document.getElementById("input-tags")
+    .value.split(",")
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+  const content = document.getElementById("markdown-input").value;
+
+  try {
+    if (currentEditingExpId) {
+      const res = await fetch(`/api/projects/${encodeURIComponent(currentEditingProjectId)}/experiments/${encodeURIComponent(currentEditingExpId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, date, status, protocol_id, tags, summary: "", content }),
+      });
+      if (!res.ok) throw new Error("Update failed");
+      showToast("実験ノートを更新しました", "success");
+      await refreshProjectsAndTree();
+    } else {
+      const res = await fetch("/api/experiments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id, title, date, protocol_id, tags, summary: "", content }),
+      });
+      if (!res.ok) throw new Error("Create failed");
+      const created = await res.json();
+      showToast("実験ノートを作成しました", "success");
+      currentEditingExpId = created.id;
+      currentEditingProjectId = created.project_id;
+      document.getElementById("input-project").disabled = true;
+      document.getElementById("btn-delete-exp").style.display = "inline-flex";
+      await refreshProjectsAndTree();
+    }
+  } catch (e) {
+    showToast("保存エラー: " + e.message, "error");
+  }
+}
+
+async function deleteCurrentExperiment() {
+  if (!currentEditingProjectId || !currentEditingExpId) return;
+
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(currentEditingProjectId)}/experiments/${encodeURIComponent(currentEditingExpId)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Delete failed");
+    showToast("実験ノートを削除しました", "info");
+    await refreshProjectsAndTree();
+    backToExperimentList();
+  } catch (e) {
+    showToast("削除エラー: " + e.message, "error");
+  }
+}
+
+async function deleteExperimentDirect(projectId, expId) {
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/experiments/${encodeURIComponent(expId)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Delete failed");
+    showToast("実験ノートを削除しました", "info");
+    if (currentEditingProjectId === projectId && currentEditingExpId === expId) {
+      backToExperimentList();
+    }
+    await refreshProjectsAndTree();
+  } catch (e) {
+    showToast("削除エラー: " + e.message, "error");
+  }
+}
+
+// PDF Export
+function exportCurrentNoteToPdf() {
+  window.print();
+}
+
+async function exportNoteToPdf(projectId, expId) {
+  if (currentEditingProjectId !== projectId || currentEditingExpId !== expId) {
+    await openEditorForExperiment(projectId, expId);
+    setTimeout(() => {
+      window.print();
+    }, 300);
+  } else {
+    window.print();
+  }
+}
+
+// ==========================================
+// Fullscreen Toggles
+// ==========================================
+
+function toggleFullscreenInput() {
+  const panes = document.getElementById("editor-panes");
+  const icon = document.getElementById("icon-fs-input");
+
+  if (isFullscreenInput) {
+    panes.classList.remove("fullscreen-input");
+    isFullscreenInput = false;
+    icon.innerHTML = SVG_EXPAND;
+  } else {
+    panes.classList.remove("fullscreen-preview");
+    isFullscreenPreview = false;
+    document.getElementById("icon-fs-preview").innerHTML = SVG_EXPAND;
+
+    panes.classList.add("fullscreen-input");
+    isFullscreenInput = true;
+    icon.innerHTML = SVG_COMPRESS;
+  }
+}
+
+function toggleFullscreenPreview() {
+  const panes = document.getElementById("editor-panes");
+  const icon = document.getElementById("icon-fs-preview");
+
+  if (isFullscreenPreview) {
+    panes.classList.remove("fullscreen-preview");
+    isFullscreenPreview = false;
+    icon.innerHTML = SVG_EXPAND;
+  } else {
+    panes.classList.remove("fullscreen-input");
+    isFullscreenInput = false;
+    document.getElementById("icon-fs-input").innerHTML = SVG_EXPAND;
+
+    panes.classList.add("fullscreen-preview");
+    isFullscreenPreview = true;
+    icon.innerHTML = SVG_COMPRESS;
+  }
+}
+
+function resetFullscreen() {
+  const panes = document.getElementById("editor-panes");
+  if (panes) {
+    panes.classList.remove("fullscreen-input");
+    panes.classList.remove("fullscreen-preview");
+  }
+  isFullscreenInput = false;
+  isFullscreenPreview = false;
+  const iconIn = document.getElementById("icon-fs-input");
+  const iconPr = document.getElementById("icon-fs-preview");
+  if (iconIn) iconIn.innerHTML = SVG_EXPAND;
+  if (iconPr) iconPr.innerHTML = SVG_EXPAND;
+}
+
+// ==========================================
+// Attachments Handling
+// ==========================================
+
+function renderAttachments(attachments) {
+  const container = document.getElementById("attachments-list");
+  if (!container) return;
+
+  if (attachments.length === 0) {
+    container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.78rem;">なし</span>';
+    return;
+  }
+
+  container.innerHTML = attachments
+    .map((att) => {
+      let icon = "📄";
+      let actionBtn = "";
+      if (att.is_image) {
+        icon = "🖼️";
+        actionBtn = `<a href="${att.rel_path}" target="_blank" class="btn btn-secondary" style="padding: 1px 5px; font-size: 0.72rem;">拡大</a>`;
+      } else if (att.is_csv) {
+        icon = "📊";
+        actionBtn = `<button onclick="viewCsvPreview('${att.filename}')" class="btn btn-secondary" style="padding: 1px 5px; font-size: 0.72rem;">表</button>`;
+      }
+
+      return `
+      <div class="attachment-pill">
+        <span>${icon}</span>
+        <a href="${att.rel_path}" download style="color: var(--text-main); text-decoration: none; font-weight: 500;">
+          ${att.filename}
+        </a>
+        ${actionBtn}
+        <button onclick="deleteAttachment('${att.filename}')" style="background:none; border:none; color: var(--danger); cursor:pointer; font-weight:bold; margin-left: 2px;">&times;</button>
+      </div>
+    `;
+    })
+    .join("");
+}
+
+function triggerFileUpload() {
+  if (!currentEditingProjectId || !currentEditingExpId) {
+    showToast("ファイルを添付する前に、一度「保存する」ボタンを押して実験ノートを作成してください", "warning");
+    return;
+  }
+  document.getElementById("file-upload-input").click();
+}
+
+async function uploadFile() {
+  const fileInput = document.getElementById("file-upload-input");
+  if (!fileInput || !fileInput.files.length || !currentEditingProjectId || !currentEditingExpId) return;
+
+  const file = fileInput.files[0];
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(currentEditingProjectId)}/experiments/${encodeURIComponent(currentEditingExpId)}/upload`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) throw new Error("Upload failed");
+    fileInput.value = "";
+    showToast(`ファイル「${file.name}」を添付しました`, "success");
+    await openEditorForExperiment(currentEditingProjectId, currentEditingExpId);
+  } catch (e) {
+    showToast("アップロード失敗: " + e.message, "error");
+  }
+}
+
+async function deleteAttachment(filename) {
+  if (!currentEditingProjectId || !currentEditingExpId) return;
+
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(currentEditingProjectId)}/experiments/${encodeURIComponent(currentEditingExpId)}/files/${encodeURIComponent(filename)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Delete failed");
+    showToast("添付ファイルを削除しました", "info");
+    await openEditorForExperiment(currentEditingProjectId, currentEditingExpId);
+  } catch (e) {
+    showToast("添付削除エラー: " + e.message, "error");
+  }
+}
+
+async function viewCsvPreview(filename) {
+  if (!currentEditingProjectId || !currentEditingExpId) return;
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(currentEditingProjectId)}/experiments/${encodeURIComponent(currentEditingExpId)}/preview-csv/${encodeURIComponent(filename)}`);
+    if (!res.ok) throw new Error("CSV preview failed");
+    const data = await res.json();
+
+    let tableHtml = '<table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;"><thead><tr>';
+    data.headers.forEach((h) => {
+      tableHtml += `<th style="border: 1px solid #cbd5e1; padding: 5px 8px; background: #f8fafc;">${h}</th>`;
+    });
+    tableHtml += "</tr></thead><tbody>";
+    data.rows.forEach((row) => {
+      tableHtml += "<tr>";
+      row.forEach((cell) => {
+        tableHtml += `<td style="border: 1px solid #e2e8f0; padding: 5px 8px;">${cell}</td>`;
+      });
+      tableHtml += "</tr>";
+    });
+    tableHtml += "</tbody></table>";
+
+    document.getElementById("csv-modal-content").innerHTML = tableHtml;
+    document.getElementById("csv-modal-title").textContent = `CSVプレビュー: ${filename}`;
+    document.getElementById("csv-modal").style.display = "flex";
+  } catch (e) {
+    showToast("CSVプレビュー取得エラー: " + e.message, "error");
+  }
+}
+
+// ==========================================
+// Protocol Management & Context Menu
+// ==========================================
+
+async function loadProtocols() {
+  try {
+    const res = await fetch("/api/protocols");
+    allProtocols = await res.json();
+    const container = document.getElementById("protocols-grid");
+    if (!container) return;
+
+    if (allProtocols.length === 0) {
+      container.innerHTML = `
+        <div style="grid-column: 1/-1; text-align: center; padding: 36px; color: var(--text-muted);">
+          <p style="font-size: 1rem; margin-bottom: 6px;">登録されているプロトコルがありません</p>
+          <p style="font-size: 0.85rem;">「新規プロトコル」ボタンから実験手順のテンプレートを登録してください。</p>
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = allProtocols
+      .map((proto) => {
+        const tagsHtml = (proto.tags || [])
+          .map((t) => `<span class="tag-badge">#${t}</span>`)
+          .join("");
+        return `
+        <div class="card" oncontextmenu="handleProtocolContextMenu(event, '${proto.id}')">
+          <div>
+            <div class="card-top">
+              <div class="card-title">${proto.title}</div>
+              <span class="sidebar-badge">v${proto.version || "1.0"}</span>
+            </div>
+            <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 8px;">${proto.description || ""}</div>
+            <div class="card-tags">${tagsHtml}</div>
+          </div>
+          <div class="card-footer">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span>🗂️ ${proto.category || "General"}</span>
+              ${proto.attachments && proto.attachments.length > 0 ? `<span style="font-size: 0.78rem; color: var(--text-muted);" title="${proto.attachments.length}個の参考添付ファイル">📎 ${proto.attachments.length}</span>` : ""}
+            </div>
+            <button class="btn btn-secondary" style="padding: 3px 6px; font-size: 0.75rem;" 
+              onclick="startExperimentFromProtocol('${proto.id}')">
+              ⚡ この手順で実験開始
+            </button>
+          </div>
+        </div>
+      `;
+      })
+      .join("");
+  } catch (e) {
+    console.error("Error loading protocols", e);
+  }
+}
+
+// Right-click on protocol card
+function handleProtocolContextMenu(event, protoId) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  const items = [
+    {
+      icon: "✏️",
+      label: "編集",
+      action: () => editProtocol(protoId)
+    },
+    {
+      icon: "📋",
+      label: "複製 (登録画面で編集)",
+      action: () => duplicateProtocol(protoId)
+    },
+    { divider: true },
+    {
+      icon: "🗑️",
+      label: "削除",
+      action: () => deleteProtocolDirect(protoId)
+    }
+  ];
+
+  showContextMenu(event.clientX, event.clientY, items);
+}
+
+// ==========================================
+// Protocol Attachments & Modal Management
+// ==========================================
+
+let pendingProtoFiles = [];
+let currentProtoAttachments = [];
+
+function renderProtoAttachments() {
+  const listEl = document.getElementById("proto-attachments-list");
+  if (!listEl) return;
+
+  const totalCount = currentProtoAttachments.length + pendingProtoFiles.length;
+  if (totalCount === 0) {
+    listEl.innerHTML = '<span style="color: var(--text-muted); font-size: 0.76rem;">添付ファイルはありません</span>';
+    return;
+  }
+
+  let html = "";
+  // 既存の添付ファイル
+  currentProtoAttachments.forEach((att) => {
+    html += `
+      <div class="proto-attachment-chip">
+        <span>📎</span>
+        <a href="${att.rel_path}" target="_blank" title="${att.filename} (${Math.round(att.size / 1024)} KB)">${att.filename}</a>
+        <button type="button" class="btn-chip-del" title="削除" onclick="deleteExistingProtoAttachment('${att.saved_name}')">&times;</button>
+      </div>
+    `;
+  });
+
+  // 新規登録時の未保存ファイル
+  pendingProtoFiles.forEach((file, idx) => {
+    html += `
+      <div class="proto-attachment-chip" style="background: #ecfdf5; border-color: #a7f3d0;">
+        <span>📄</span>
+        <span style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${file.name} (${Math.round(file.size / 1024)} KB)">${file.name} (登録時に保存)</span>
+        <button type="button" class="btn-chip-del" title="取り消し" onclick="removePendingProtoFile(${idx})">&times;</button>
+      </div>
+    `;
+  });
+
+  listEl.innerHTML = html;
+}
+
+function onProtoFileSelected(event) {
+  const files = Array.from(event.target.files || []);
+  if (!files.length) return;
+
+  const editId = document.getElementById("proto-edit-id").value.trim();
+  if (editId) {
+    // 既存プロトコル編集中の場合は即時アップロード
+    uploadProtoFilesImmediately(editId, files);
+  } else {
+    // 新規作成時は保留リストに追加
+    files.forEach((f) => pendingProtoFiles.push(f));
+    renderProtoAttachments();
+  }
+  event.target.value = "";
+}
+
+async function uploadProtoFilesImmediately(protoId, files) {
+  for (const file of files) {
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await fetch(`/api/protocols/${encodeURIComponent(protoId)}/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) throw new Error("アップロードに失敗しました");
+      showToast(`添付「${file.name}」を追加しました`, "success");
+    } catch (err) {
+      showToast(`添付追加エラー: ${err.message}`, "error");
+    }
+  }
+  await reloadProtoAttachmentsForEdit(protoId);
+  await loadProtocols();
+}
+
+async function reloadProtoAttachmentsForEdit(protoId) {
+  try {
+    const res = await fetch(`/api/protocols/${encodeURIComponent(protoId)}`);
+    if (res.ok) {
+      const data = await res.json();
+      currentProtoAttachments = data.attachments || [];
+      pendingProtoFiles = [];
+      renderProtoAttachments();
+    }
+  } catch (e) {
+    console.error("reloadProtoAttachmentsForEdit failed", e);
+  }
+}
+
+function removePendingProtoFile(index) {
+  pendingProtoFiles.splice(index, 1);
+  renderProtoAttachments();
+}
+
+async function deleteExistingProtoAttachment(savedName) {
+  const editId = document.getElementById("proto-edit-id").value.trim();
+  if (!editId) return;
+
+  try {
+    const res = await fetch(`/api/protocols/${encodeURIComponent(editId)}/files/${encodeURIComponent(savedName)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("削除に失敗しました");
+    showToast("添付ファイルを削除しました", "info");
+    await reloadProtoAttachmentsForEdit(editId);
+    await loadProtocols();
+  } catch (e) {
+    showToast("添付削除エラー: " + e.message, "error");
+  }
+}
+
+function openNewProtocolModal() {
+  document.getElementById("proto-modal-title").textContent = "新規プロトコル作成";
+  document.getElementById("proto-edit-id").value = "";
+  document.getElementById("proto-title").value = "";
+  document.getElementById("proto-category").value = "General";
+  document.getElementById("proto-version").value = "1.0";
+  document.getElementById("proto-description").value = "";
+  document.getElementById("proto-tags").value = "";
+  document.getElementById("proto-content").value = "- [ ] ステップ 1\n- [ ] ステップ 2\n- [ ] ステップ 3";
+  
+  pendingProtoFiles = [];
+  currentProtoAttachments = [];
+  renderProtoAttachments();
+  
+  document.getElementById("protocol-modal").style.display = "flex";
+}
+
+async function editProtocol(protoId) {
+  try {
+    const res = await fetch(`/api/protocols/${encodeURIComponent(protoId)}`);
+    if (!res.ok) throw new Error("プロトコルの取得に失敗しました");
+    const proto = await res.json();
+
+    document.getElementById("proto-modal-title").textContent = "プロトコルの編集";
+    document.getElementById("proto-edit-id").value = proto.id;
+    document.getElementById("proto-title").value = proto.title || "";
+    document.getElementById("proto-category").value = proto.category || "General";
+    document.getElementById("proto-version").value = proto.version || "1.0";
+    document.getElementById("proto-description").value = proto.description || "";
+    document.getElementById("proto-tags").value = (proto.tags || []).join(", ");
+    document.getElementById("proto-content").value = proto.content || "";
+
+    currentProtoAttachments = proto.attachments || [];
+    pendingProtoFiles = [];
+    renderProtoAttachments();
+
+    document.getElementById("protocol-modal").style.display = "flex";
+  } catch (e) {
+    showToast("エラー: " + e.message, "error");
+  }
+}
+
+async function duplicateProtocol(protoId) {
+  try {
+    const res = await fetch(`/api/protocols/${encodeURIComponent(protoId)}`);
+    if (!res.ok) throw new Error("プロトコルの取得に失敗しました");
+    const proto = await res.json();
+
+    document.getElementById("proto-modal-title").textContent = "新規プロトコル作成 (複製)";
+    document.getElementById("proto-edit-id").value = ""; // Clear to treat as new
+    document.getElementById("proto-title").value = `${proto.title} (コピー)`;
+    document.getElementById("proto-category").value = proto.category || "General";
+    document.getElementById("proto-version").value = proto.version || "1.0";
+    document.getElementById("proto-description").value = proto.description || "";
+    document.getElementById("proto-tags").value = (proto.tags || []).join(", ");
+    document.getElementById("proto-content").value = proto.content || "";
+
+    pendingProtoFiles = [];
+    currentProtoAttachments = [];
+    renderProtoAttachments();
+
+    document.getElementById("protocol-modal").style.display = "flex";
+  } catch (e) {
+    showToast("エラー: " + e.message, "error");
+  }
+}
+
+async function deleteProtocolDirect(protoId) {
+  try {
+    const res = await fetch(`/api/protocols/${encodeURIComponent(protoId)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Delete failed");
+    showToast("プロトコルを削除しました", "info");
+    await loadProtocols();
+  } catch (e) {
+    showToast("削除エラー: " + e.message, "error");
+  }
+}
+
+async function saveProtocolFromModal() {
+  const title = document.getElementById("proto-title").value.trim();
+  if (!title) {
+    showToast("プロトコルタイトルを入力してください", "warning");
+    return;
+  }
+  const editId = document.getElementById("proto-edit-id").value.trim();
+  const category = document.getElementById("proto-category").value.trim() || "General";
+  const version = document.getElementById("proto-version").value.trim() || "1.0";
+  const description = document.getElementById("proto-description").value.trim();
+  const tags = document.getElementById("proto-tags").value.split(",").map(t => t.trim()).filter(t => t);
+  const content = document.getElementById("proto-content").value;
+
+  const payload = {
+    title,
+    category,
+    version,
+    description,
+    tags,
+    content
+  };
+  if (editId) {
+    payload.id = editId; // Update existing
+  }
+
+  try {
+    const res = await fetch("/api/protocols", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error("Failed to save protocol");
+    const savedProto = await res.json();
+
+    // 新規登録時の添付ファイルをアップロード
+    if (pendingProtoFiles.length > 0 && savedProto && savedProto.id) {
+      for (const file of pendingProtoFiles) {
+        const formData = new FormData();
+        formData.append("file", file);
+        try {
+          await fetch(`/api/protocols/${encodeURIComponent(savedProto.id)}/upload`, {
+            method: "POST",
+            body: formData
+          });
+        } catch (e) {
+          console.error("Failed to upload proto file", e);
+        }
+      }
+      pendingProtoFiles = [];
+    }
+
+    closeModal("protocol-modal");
+    await loadProtocols();
+    showToast("プロトコルを保存しました", "success");
+  } catch (e) {
+    showToast("保存エラー: " + e.message, "error");
+  }
+}
+
+async function startExperimentFromProtocol(protoId) {
+  await openEditorForNew();
+  document.getElementById("input-protocol").value = protoId;
+  await applyProtocolTemplate(protoId);
+}
+
+function closeModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) modal.style.display = "none";
+}

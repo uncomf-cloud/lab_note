@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>実験ノート編集 - lab_note</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-logo">🧪</span>
+      <div>
+        <div class="sidebar-title">lab_note</div>
+        <div class="sidebar-badge">Electronic Lab Notebook</div>
+      </div>
+    </div>
+    
+    <nav class="sidebar-menu">
+      <a href="/" class="menu-item">
+        <span>⬅️</span> ノート一覧へ戻る
+      </a>
+      <div class="menu-item active">
+        <span>✍️</span> ノートエディタ
+      </div>
+    </nav>
+    
+    <div class="sidebar-footer">
+      <div>Workspace: <strong>laboratory</strong></div>
+      <div class="workspace-status">
+        <span class="status-dot"></span>
+        <span id="workspace-status-text">接続中</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <div class="main-wrapper">
+    <!-- Top Bar -->
+    <header class="top-bar">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <h2 id="editor-title" style="font-size: 1.25rem; font-weight: 700;">実験ノート作成</h2>
+      </div>
+      <div class="top-actions">
+        <!-- AI Assist Button -->
+        <button id="btn-ai-prompt" class="btn btn-ai" style="display: none;" onclick="openAiPromptModal()">
+          <span>✨</span> AI考察依頼プロンプト生成
+        </button>
+        <button id="btn-delete-exp" class="btn btn-danger" style="display: none;" onclick="deleteCurrentExperiment()">
+          <span>🗑️</span> 削除
+        </button>
+        <button class="btn btn-secondary" onclick="window.location.href='/'">
+          キャンセル
+        </button>
+        <button class="btn btn-primary" onclick="saveExperiment()">
+          <span>💾</span> 保存する
+        </button>
+      </div>
+    </header>
+
+    <!-- Editor Area -->
+    <main class="content-area">
+      <div class="editor-container">
+        <!-- Metadata Header Card -->
+        <div class="editor-header-card">
+          <!-- Project Selection & Title -->
+          <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 16px; margin-bottom: 14px;">
+            <div class="form-group">
+              <label>研究テーマ (Project) *</label>
+              <select id="input-project" class="form-select">
+                <option value="">読み込み中...</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>実験タイトル *</label>
+              <input type="text" id="input-title" class="form-input" placeholder="例: GAPDHプライマーのアニーリング温度検討">
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label>採用プロトコル (テンプレート連携)</label>
+              <select id="input-protocol" class="form-select" onchange="onProtocolDropdownChange(this.value)">
+                <option value="">(プロトコルなし)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>実施日</label>
+              <input type="date" id="input-date" class="form-input">
+            </div>
+            <div class="form-group">
+              <label>ステータス</label>
+              <select id="input-status" class="form-select">
+                <option value="in_progress">進行中 (in_progress)</option>
+                <option value="completed">完了 (completed)</option>
+                <option value="failed">中断 / 要再試 (failed)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 16px; margin-bottom: 12px;">
+            <div class="form-group">
+              <label>タグ (カンマ区切り)</label>
+              <input type="text" id="input-tags" class="form-input" placeholder="PCR, GAPDH, 温度勾配">
+            </div>
+            <div class="form-group">
+              <label>実験概要 / サマリー</label>
+              <input type="text" id="input-summary" class="form-input" placeholder="この実験の主な目的や条件を一文で要約">
+            </div>
+          </div>
+        </div>
+
+        <!-- Editor Panes: Markdown vs Live Preview -->
+        <div class="editor-panes">
+          <!-- Markdown Input -->
+          <div class="editor-pane">
+            <div class="pane-header">
+              <span>Markdown 入力</span>
+              <span style="font-size: 0.75rem; color: var(--text-muted);">チェックボックス: - [ ] または - [x]</span>
+            </div>
+            <textarea id="markdown-input" class="editor-textarea" placeholder="## 目的&#10;実験目的を記入&#10;&#10;## 実験手順・方法&#10;- [ ] ステップ1&#10;- [ ] ステップ2&#10;&#10;## 結果&#10;- 観察結果や測定値を記録&#10;&#10;## 考察 & 次のアクション&#10;- 考察を記入"></textarea>
+          </div>
+
+          <!-- Markdown Live Preview -->
+          <div class="editor-pane">
+            <div class="pane-header">
+              <span>リアルタイム プレビュー</span>
+              <span style="font-size: 0.75rem; color: var(--text-muted);">プレビュー表示</span>
+            </div>
+            <div id="markdown-preview" class="preview-content"></div>
+          </div>
+        </div>
+
+        <!-- Attachments Card -->
+        <div class="attachments-card">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <strong style="font-size: 0.95rem;">生データ & 画像添付</strong>
+              <p style="font-size: 0.8rem; color: var(--text-muted);">CSV測定データ、電気泳動画像、顕微鏡写真、PDFなどを実験フォルダに安全保管</p>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="file" id="file-upload-input" style="display: none;" onchange="uploadFile()">
+              <button class="btn btn-secondary" onclick="triggerFileUpload()" id="btn-upload-file">
+                <span>📎</span> ファイルを追加
+              </button>
+            </div>
+          </div>
+          <div id="attachments-list" class="attachments-list">
+            <span style="color: var(--text-muted); font-size: 0.85rem;">保存後にファイルを添付できます</span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- AI Collaboration Modal -->
+  <div id="ai-modal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.25rem;">✨</span>
+          <h3 style="font-size: 1.1rem; font-weight: 600;">AI考察支援プロンプト (Antigravity / GitHub Copilot)</h3>
+        </div>
+        <button onclick="closeModal('ai-modal')" style="background:none; border:none; font-size: 1.2rem; cursor:pointer;">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+          現在の研究テーマと実験結果をAIが理解しやすい形式にフォーマットしました。
+          下の「プロンプトをコピー」を押し、Antigravity や Copilot のチャットに貼り付けて考察を依頼してください。
+        </p>
+        <textarea id="ai-prompt-textarea" class="form-input" style="height: 260px; font-family: monospace; font-size: 0.85rem; width: 100%; resize: vertical;" readonly></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('ai-modal')">閉じる</button>
+        <button class="btn btn-ai" onclick="copyAiPrompt()">
+          <span>📋</span> プロンプトをコピー
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CSV Preview Modal -->
+  <div id="csv-modal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 900px;">
+      <div class="modal-header">
+        <h3 id="csv-modal-title" style="font-size: 1.1rem; font-weight: 600;">CSVデータプレビュー</h3>
+        <button onclick="closeModal('csv-modal')" style="background:none; border:none; font-size: 1.2rem; cursor:pointer;">&times;</button>
+      </div>
+      <div class="modal-body" id="csv-modal-content" style="max-height: 500px; overflow: auto;">
+        <!-- CSV table inserted here -->
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('csv-modal')">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      initEditor();
+    });
+
+    function triggerFileUpload() {
+      if (!editingProjectId || !editingExpId) {
+        alert("ファイルを添付する前に、一度「保存する」ボタンを押して実験ノートを作成してください。");
+        return;
+      }
+      document.getElementById("file-upload-input").click();
+    }
+
+    async function onProtocolDropdownChange(protocolId) {
+      if (!protocolId) return;
+      if (!document.getElementById("markdown-input").value.trim() || confirm("選択したプロトコルのテンプレート内容をノートに展開しますか？")) {
+        await applyProtocolTemplate(protocolId);
+      }
+    }
+  </script>
+</body>
+</html>

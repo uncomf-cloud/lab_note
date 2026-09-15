@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>電子実験ノート</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Sidebar (常に表示) -->
+  <aside class="sidebar" id="app-sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">電子実験ノート</div>
+    </div>
+    
+    <nav class="sidebar-menu">
+      <div id="menu-experiments" class="menu-item active" onclick="viewAllProjects()">
+        <span>📚</span> すべての実験ノート
+      </div>
+      <div id="menu-protocols" class="menu-item" onclick="switchTab('protocols')">
+        <span>📋</span> プロトコル原本一覧
+      </div>
+      <div class="menu-item" onclick="openEditorForNew()">
+        <span>➕</span> 新規ノート作成
+      </div>
+    </nav>
+
+    <!-- Project Tree View Header -->
+    <div class="sidebar-section-title">
+      <span>研究テーマ (Projects)</span>
+      <div style="display: flex; align-items: center; gap: 4px;">
+        <button class="btn-icon-mini" onclick="openHiddenProjectsModal()" title="非表示にしたプロジェクトの管理">⚙️</button>
+        <span class="sidebar-badge" id="project-count-badge">0</span>
+      </div>
+    </div>
+    
+    <!-- Tree List of Projects and Experiments (スクロールバー常設) -->
+    <div class="project-tree-container" id="project-tree-list">
+      <!-- Populated by JavaScript -->
+    </div>
+  </aside>
+
+  <!-- Vertical Pane Resizer Bar (幅を左右にドラッグして伸縮) -->
+  <div class="pane-resizer" id="pane-resizer" title="ドラッグしてサイドバー幅を変更"></div>
+
+  <!-- Main Content Wrapper (画面遷移せず中身を切り替え) -->
+  <div class="main-wrapper" id="app-main">
+    <!-- Top Bar -->
+    <header class="top-bar">
+      <!-- Left side of topbar -->
+      <div id="topbar-left" style="display: flex; align-items: center; gap: 12px;">
+        <div class="search-box" id="global-search-box">
+          <span>🔍</span>
+          <input type="text" id="search-input" placeholder="テーマ、実験名、タグ、本文から検索...">
+        </div>
+        <div id="editor-nav-back" style="display: none; align-items: center; gap: 8px;">
+          <button class="btn btn-secondary" onclick="backToExperimentList()">
+            <span>⬅️</span> 一覧へ戻る
+          </button>
+          <span id="editor-page-heading" style="font-weight: 700; font-size: 1.05rem; margin-left: 4px;">実験ノート編集</span>
+        </div>
+      </div>
+
+      <!-- Right side topbar actions -->
+      <div class="top-actions" id="topbar-actions">
+        <!-- Dashboard view actions -->
+        <div id="actions-dashboard" style="display: flex; gap: 8px;">
+          <button class="btn btn-secondary" onclick="openNewProtocolModal()">
+            <span>📋</span> 新規プロトコル
+          </button>
+          <button class="btn btn-primary" onclick="openEditorForNew()">
+            <span>✍️</span> 新規実験ノート
+          </button>
+        </div>
+
+        <!-- Editor view actions -->
+        <div id="actions-editor" style="display: none; gap: 8px; align-items: center;">
+          <button id="btn-delete-exp" class="btn btn-danger" style="display: none;" onclick="deleteCurrentExperiment()">
+            <span>🗑️</span> 削除
+          </button>
+          <button class="btn btn-primary" onclick="saveExperiment()">
+            <span>💾</span> 保存する
+          </button>
+          <button class="btn btn-secondary" onclick="exportCurrentNoteToPdf()" title="このノートをPDFとして印刷・出力">
+            <span>📄</span> PDF出力
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Content Area (SPA Multi-views) -->
+    <main class="content-area">
+      <!-- 1. Experiments View -->
+      <section id="view-experiments">
+        <div class="view-header">
+          <div>
+            <h1 class="view-title" id="experiments-view-title">すべての実験ノート</h1>
+            <p style="color: var(--text-muted); font-size: 0.85rem;" id="experiments-view-desc">
+              全プロジェクト横断の実験プロトコル実施結果・記録
+            </p>
+          </div>
+        </div>
+
+        <div id="tag-filters" class="filter-tags"></div>
+
+        <div id="experiments-grid" class="cards-grid">
+          <!-- Dynamically populated -->
+        </div>
+      </section>
+
+      <!-- 2. Editor View (画面遷移せず左ペインを残したまま表示) -->
+      <section id="view-editor" style="display: none; height: 100%;">
+        <div class="editor-container">
+          <!-- Metadata 2-row Compact Card -->
+          <div class="editor-header-card">
+            <!-- Row 1: Project (1/3) + Title (2/3) -->
+            <div class="form-row-1">
+              <div class="form-group-compact">
+                <label>研究テーマ (Project) *</label>
+                <select id="input-project" class="form-select-compact">
+                  <option value="">読み込み中...</option>
+                </select>
+              </div>
+              <div class="form-group-compact">
+                <label>実験タイトル *</label>
+                <input type="text" id="input-title" class="form-input-compact" placeholder="例: GAPDHプライマーのアニーリング温度検討">
+              </div>
+            </div>
+
+            <!-- Row 2: Protocol (1/4) + Date (1/4) + Status (1/4) + Tags (1/4) -->
+            <div class="form-row-2">
+              <div class="form-group-compact">
+                <label>採用プロトコル</label>
+                <select id="input-protocol" class="form-select-compact" onchange="onProtocolDropdownChange(this.value)">
+                  <option value="">(プロトコルなし)</option>
+                </select>
+              </div>
+              <div class="form-group-compact">
+                <label>実施日</label>
+                <input type="date" id="input-date" class="form-input-compact">
+              </div>
+              <div class="form-group-compact">
+                <label>ステータス</label>
+                <select id="input-status" class="form-select-compact">
+                  <option value="in_progress">進行中 (in_progress)</option>
+                  <option value="completed">完了 (completed)</option>
+                  <option value="failed">中断 / 要再試 (failed)</option>
+                </select>
+              </div>
+              <div class="form-group-compact">
+                <label>タグ (カンマ区切り)</label>
+                <input type="text" id="input-tags" class="form-input-compact" placeholder="PCR, GAPDH, 温度勾配">
+              </div>
+            </div>
+          </div>
+
+          <!-- Maximized Editor Panes (Fullscreen toggleable) -->
+          <div class="editor-panes" id="editor-panes">
+            <!-- Markdown Input Pane -->
+            <div class="editor-pane pane-input" id="pane-input">
+              <div class="pane-header">
+                <span>Markdown 入力</span>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <button class="btn-fullscreen" id="btn-fullscreen-input" onclick="toggleFullscreenInput()" title="全画面表示の切り替え">
+                    <svg viewBox="0 0 24 24" id="icon-fs-input"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                  </button>
+                </div>
+              </div>
+              <textarea id="markdown-input" class="editor-textarea" placeholder="## 目的&#10;&#10;## 実験手順・方法&#10;- [ ] ステップ1&#10;- [ ] ステップ2&#10;&#10;## 結果&#10;- 観察結果や測定値を記録&#10;&#10;## 考察 & 次のアクション&#10;- 考察を記入"></textarea>
+            </div>
+
+            <!-- Markdown Live Preview Pane -->
+            <div class="editor-pane pane-preview" id="pane-preview">
+              <div class="pane-header">
+                <span>リアルタイム プレビュー</span>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <button class="btn-fullscreen" id="btn-fullscreen-preview" onclick="toggleFullscreenPreview()" title="全画面表示の切り替え">
+                    <svg viewBox="0 0 24 24" id="icon-fs-preview"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div id="markdown-preview" class="preview-content"></div>
+            </div>
+          </div>
+
+          <!-- Attachments Footer Bar -->
+          <div class="attachments-bar">
+            <div style="display: flex; align-items: center; gap: 10px; overflow-x: auto;">
+              <strong style="font-size: 0.82rem; white-space: nowrap;">📎 添付データ:</strong>
+              <div id="attachments-list" class="attachments-list">
+                <span style="color: var(--text-muted); font-size: 0.78rem;">保存後にファイルを添付できます</span>
+              </div>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
+              <input type="file" id="file-upload-input" style="display: none;" onchange="uploadFile()">
+              <button class="btn btn-secondary" onclick="triggerFileUpload()" id="btn-upload-file" style="padding: 3px 8px; font-size: 0.78rem;">
+                ファイル追加
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. Protocols View -->
+      <section id="view-protocols" style="display: none;">
+        <div class="view-header">
+          <div>
+            <h1 class="view-title">標準プロトコル原本一覧</h1>
+            <p style="color: var(--text-muted); font-size: 0.85rem;">再利用可能な実験手順テンプレート (右クリックで編集・複製・削除)</p>
+          </div>
+          <button class="btn btn-primary" onclick="openNewProtocolModal()">
+            <span>➕</span> 新規プロトコル登録
+          </button>
+        </div>
+
+        <div id="protocols-grid" class="cards-grid">
+          <!-- Dynamically populated -->
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Context Menu (右クリック用メニュー) -->
+  <div id="context-menu" class="context-menu"></div>
+
+  <!-- Hidden Projects Management Modal -->
+  <div id="hidden-projects-modal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 style="font-size: 1.05rem; font-weight: 600;">非表示プロジェクトの管理</h3>
+        <button onclick="closeModal('hidden-projects-modal')" style="background:none; border:none; font-size: 1.2rem; cursor:pointer;">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 12px;">
+          非表示に設定された研究テーマです。再表示したいプロジェクトの「表示に戻す」をクリックしてください。
+        </p>
+        <div id="hidden-projects-list" style="display: flex; flex-direction: column; gap: 6px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('hidden-projects-modal')">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Protocol Modal (ID自動生成・編集・複製対応) -->
+  <div id="protocol-modal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 style="font-size: 1.05rem; font-weight: 600;" id="proto-modal-title">新規プロトコル作成</h3>
+        <button onclick="closeModal('protocol-modal')" style="background:none; border:none; font-size: 1.2rem; cursor:pointer;">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="proto-edit-id" value="">
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="form-group-compact">
+            <label>プロトコル名 / タイトル *</label>
+            <input type="text" id="proto-title" class="form-input-compact" placeholder="例: 標準PCR増幅プロトコル">
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div class="form-group-compact">
+              <label>カテゴリ</label>
+              <input type="text" id="proto-category" class="form-input-compact" placeholder="分子生物学" value="General">
+            </div>
+            <div class="form-group-compact">
+              <label>バージョン</label>
+              <input type="text" id="proto-version" class="form-input-compact" value="1.0">
+            </div>
+          </div>
+          <div class="form-group-compact">
+            <label>概要説明</label>
+            <input type="text" id="proto-description" class="form-input-compact" placeholder="この手順の概要や対象サンプル">
+          </div>
+          <div class="form-group-compact">
+            <label>タグ (カンマ区切り)</label>
+            <input type="text" id="proto-tags" class="form-input-compact" placeholder="PCR, DNA, 標準法">
+          </div>
+          <div class="form-group-compact">
+            <label>手順内容 (Markdown, チェックリスト形式推奨)</label>
+            <textarea id="proto-content" class="form-input-compact" style="height: 150px; font-family: monospace;" placeholder="- [ ] 試薬Aを氷上で融解&#10;- [ ] 酵素Xを 0.5 µL 添加&#10;- [ ] サーマルサイクラー条件設定 (95℃ 30s / 58℃ 30s / 72℃ 1min)"></textarea>
+          </div>
+          <div class="form-group-compact">
+            <label>参考ファイルの添付 (PDF, 画像, 手順書等)</label>
+            <div class="proto-attachments-wrapper">
+              <div id="proto-attachments-list" class="proto-attachments-list">
+                <span style="color: var(--text-muted); font-size: 0.76rem;">添付ファイルはありません</span>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
+                <input type="file" id="proto-file-input" style="display: none;" multiple onchange="onProtoFileSelected(event)">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('proto-file-input').click()" style="padding: 3px 8px; font-size: 0.78rem;">
+                  📎 ファイルを選択
+                </button>
+                <span id="proto-file-status" style="font-size: 0.74rem; color: var(--text-muted);">shared/protocols に関連付け保存されます</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('protocol-modal')">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveProtocolFromModal()">登録する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CSV Preview Modal -->
+  <div id="csv-modal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 850px;">
+      <div class="modal-header">
+        <h3 id="csv-modal-title" style="font-size: 1.05rem; font-weight: 600;">CSVデータプレビュー</h3>
+        <button onclick="closeModal('csv-modal')" style="background:none; border:none; font-size: 1.2rem; cursor:pointer;">&times;</button>
+      </div>
+      <div class="modal-body" id="csv-modal-content" style="max-height: 480px; overflow: auto;"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('csv-modal')">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
