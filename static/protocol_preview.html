@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>プロトコル プレビュー - 電子実験ノート</title>
+  <link rel="icon" type="image/png" href="/static/app_icon.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    body {
+      background-color: #f1f5f9;
+      color: #0f172a;
+      display: block;
+      height: 100vh;
+      overflow-y: auto;
+      user-select: text;
+      padding: 0;
+      margin: 0;
+    }
+
+    .preview-navbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: #1e293b;
+      color: #ffffff;
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+    }
+
+    .preview-navbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .preview-navbar-left img {
+      width: 26px;
+      height: 26px;
+      border-radius: 4px;
+      object-fit: contain;
+    }
+
+    .preview-navbar-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .preview-container {
+      max-width: 880px;
+      margin: 28px auto;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
+      overflow: hidden;
+    }
+
+    .preview-header {
+      padding: 24px 32px 18px 32px;
+      border-bottom: 2px solid #f1f5f9;
+      background: #fafafa;
+    }
+
+    .preview-header-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .proto-badge-id {
+      font-family: monospace;
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #2563eb;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .proto-badge-cat {
+      font-size: 0.8rem;
+      background: #e2e8f0;
+      color: #334155;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    .proto-badge-ver {
+      font-size: 0.8rem;
+      background: #3b82f6;
+      color: #ffffff;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .preview-h1 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.3;
+      margin-bottom: 8px;
+    }
+
+    .preview-desc {
+      font-size: 0.92rem;
+      color: #64748b;
+      line-height: 1.6;
+    }
+
+    .preview-meta-details {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+      margin-top: 14px;
+      font-size: 0.82rem;
+      color: #64748b;
+      border-top: 1px dashed #e2e8f0;
+      padding-top: 10px;
+    }
+
+    .preview-body {
+      padding: 28px 32px;
+      line-height: 1.8;
+      font-size: 0.95rem;
+    }
+
+    .preview-attachments {
+      padding: 18px 32px;
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+    }
+
+    .preview-attachments h4 {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #334155;
+      margin-bottom: 8px;
+    }
+
+    .preview-attachments-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .preview-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      padding: 4px 10px;
+      border-radius: 16px;
+      font-size: 0.82rem;
+      color: #1e293b;
+      text-decoration: none;
+      transition: all 0.15s;
+    }
+
+    .preview-chip:hover {
+      background: #eff6ff;
+      border-color: #93c5fd;
+      color: #2563eb;
+    }
+
+    @media print {
+      body {
+        background: #ffffff;
+      }
+      .preview-navbar {
+        display: none !important;
+      }
+      .preview-container {
+        border: none;
+        box-shadow: none;
+        margin: 0;
+        max-width: 100%;
+      }
+      .preview-header {
+        background: none;
+        border-bottom: 1px solid #000;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Top Navigation Bar -->
+  <header class="preview-navbar">
+    <div class="preview-navbar-left">
+      <img src="/static/app_icon.png" alt="電子実験ノート ロゴ">
+      <div class="preview-navbar-title">電子実験ノート - プロトコル原本プレビュー</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <button class="btn btn-secondary" onclick="window.print()" style="padding: 5px 12px; font-size: 0.82rem; background: #334155; color: #fff; border: 1px solid #475569;">
+        🖨️ 印刷 / PDF出力
+      </button>
+      <button class="btn btn-secondary" onclick="window.close()" style="padding: 5px 12px; font-size: 0.82rem; background: #334155; color: #fff; border: 1px solid #475569;">
+        ✖ 閉じる
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Protocol Content -->
+  <main class="preview-container" id="preview-container">
+    <div id="loading-spinner" style="text-align: center; padding: 60px; color: #64748b;">
+      <p style="font-size: 1.1rem; font-weight: 500;">プロトコルを読み込み中...</p>
+    </div>
+
+    <div id="protocol-content-wrapper" style="display: none;">
+      <!-- Header / Meta -->
+      <div class="preview-header">
+        <div class="preview-header-meta">
+          <span class="proto-badge-id" id="proto-id-text">ID</span>
+          <span class="proto-badge-cat" id="proto-cat-text">General</span>
+          <span class="proto-badge-ver" id="proto-ver-text">v1.0</span>
+          <span id="proto-tags-container" style="display: inline-flex; gap: 4px;"></span>
+        </div>
+        <h1 class="preview-h1" id="proto-title-text">プロトコルタイトル</h1>
+        <p class="preview-desc" id="proto-desc-text"></p>
+        <div class="preview-meta-details">
+          <span>作成者: <strong id="proto-author-text">未設定</strong></span>
+          <span>更新日時: <strong id="proto-date-text">-</strong></span>
+        </div>
+      </div>
+
+      <!-- Markdown Body -->
+      <div class="preview-body markdown-body" id="proto-markdown-body">
+        <!-- Rendered markdown -->
+      </div>
+
+      <!-- Attachments (if any) -->
+      <div class="preview-attachments" id="proto-attachments-section" style="display: none;">
+        <h4>📎 添付ファイル・参考手順書</h4>
+        <div class="preview-attachments-list" id="proto-attachments-container"></div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    async function loadProtocol() {
+      // Extract protocol ID from path: /protocols/{protocol_id}/preview
+      // or query parameter ?id={protocol_id}
+      let protoId = "";
+      const pathParts = window.location.pathname.split("/").filter(Boolean);
+      const protoIndex = pathParts.indexOf("protocols");
+      if (protoIndex !== -1 && pathParts.length > protoIndex + 1) {
+        protoId = decodeURIComponent(pathParts[protoIndex + 1]);
+      }
+      if (!protoId) {
+        const urlParams = new URLSearchParams(window.location.search);
+        protoId = urlParams.get("id");
+      }
+
+      if (!protoId) {
+        document.getElementById("loading-spinner").innerHTML = `
+          <p style="color: #ef4444; font-size: 1rem;">プロトコルIDが指定されていません。</p>
+        `;
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/protocols/${encodeURIComponent(protoId)}`);
+        if (!res.ok) {
+          throw new Error("プロトコルが見つかりませんでした (404)");
+        }
+        const proto = await res.json();
+        renderProtocol(proto);
+      } catch (err) {
+        document.getElementById("loading-spinner").innerHTML = `
+          <p style="color: #ef4444; font-size: 1rem;">${err.message}</p>
+        `;
+      }
+    }
+
+    function renderProtocol(proto) {
+      document.title = `${proto.title || proto.id} - プロトコルプレビュー`;
+      document.getElementById("proto-id-text").textContent = `🏷️ ${proto.id}`;
+      document.getElementById("proto-cat-text").textContent = `🗂️ ${proto.category || "General"}`;
+      document.getElementById("proto-ver-text").textContent = `v${proto.version || "1.0"}`;
+      document.getElementById("proto-title-text").textContent = proto.title || "名称未設定";
+      document.getElementById("proto-desc-text").textContent = proto.description || "";
+      document.getElementById("proto-author-text").textContent = proto.author || "未設定";
+      document.getElementById("proto-date-text").textContent = proto.updated_at || proto.created_at || "-";
+
+      // Tags
+      const tagsContainer = document.getElementById("proto-tags-container");
+      tagsContainer.innerHTML = (proto.tags || [])
+        .map(t => `<span class="tag-badge">#${t}</span>`)
+        .join("");
+
+      // Markdown Content
+      const mdBody = document.getElementById("proto-markdown-body");
+      if (typeof marked !== "undefined" && proto.content) {
+        mdBody.innerHTML = marked.parse(proto.content);
+      } else {
+        mdBody.textContent = proto.content || "(手順内容は記載されていません)";
+      }
+
+      // Attachments
+      const attSection = document.getElementById("proto-attachments-section");
+      const attContainer = document.getElementById("proto-attachments-container");
+      if (proto.attachments && proto.attachments.length > 0) {
+        attSection.style.display = "block";
+        attContainer.innerHTML = proto.attachments.map(att => `
+          <a class="preview-chip" href="${att.rel_path}" target="_blank">
+            <span>📎</span>
+            <span>${att.filename}</span>
+            <span style="font-size: 0.72rem; color: #64748b;">(${Math.round(att.size / 1024)} KB)</span>
+          </a>
+        `).join("");
+      } else {
+        attSection.style.display = "none";
+      }
+
+      document.getElementById("loading-spinner").style.display = "none";
+      document.getElementById("protocol-content-wrapper").style.display = "block";
+    }
+
+    document.addEventListener("DOMContentLoaded", loadProtocol);
+  </script>
+</body>
+</html>

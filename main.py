@@ -59,6 +59,7 @@ class ExperimentCreateRequest(BaseModel):
     summary: str = ""
     content: Optional[str] = None
     status: str = "in_progress"
+    protocol_ids: Optional[List[str]] = None
 
 class ExperimentUpdateRequest(BaseModel):
     title: str
@@ -69,10 +70,20 @@ class ExperimentUpdateRequest(BaseModel):
     tags: List[str] = []
     summary: str = ""
     protocol_id: str = ""
+    protocol_ids: Optional[List[str]] = None
 
 # ==========================================
 # Static Page Routes (SPA)
 # ==========================================
+
+@app.get("/favicon.ico")
+async def serve_favicon():
+    favicon = STATIC_DIR / "app_icon.ico"
+    if not favicon.exists():
+        favicon = BASE_DIR / "app_icon.ico"
+    if favicon.exists():
+        return FileResponse(str(favicon), media_type="image/x-icon")
+    return JSONResponse({"message": "favicon not found"}, status_code=404)
 
 @app.get("/")
 async def serve_index():
@@ -87,6 +98,13 @@ async def serve_editor():
     if index_file.exists():
         return FileResponse(str(index_file))
     return JSONResponse({"message": "index.html not found."})
+
+@app.get("/protocols/{protocol_id}/preview")
+async def serve_protocol_preview(protocol_id: str):
+    preview_file = STATIC_DIR / "protocol_preview.html"
+    if preview_file.exists():
+        return FileResponse(str(preview_file))
+    return JSONResponse({"message": "protocol_preview.html not found."})
 
 # ==========================================
 # System & Project APIs
@@ -208,11 +226,16 @@ async def get_project_experiment(project_id: str, experiment_id: str):
 async def create_experiment(req: ExperimentCreateRequest):
     if not req.project_id:
         raise HTTPException(status_code=400, detail="project_id is required")
+    # Handle single protocol_id or list of protocol_ids
+    proto_id_val = req.protocol_id
+    if not proto_id_val and req.protocol_ids:
+        proto_id_val = ", ".join(req.protocol_ids)
+
     result = storage.create_experiment(
         project_id=req.project_id,
         title=req.title,
         date_str=req.date,
-        protocol_id=req.protocol_id,
+        protocol_id=proto_id_val,
         author=req.author,
         tags=req.tags,
         summary=req.summary,
@@ -230,6 +253,10 @@ async def duplicate_project_experiment(project_id: str, experiment_id: str):
 
 @app.put("/api/projects/{project_id}/experiments/{experiment_id}")
 async def update_project_experiment(project_id: str, experiment_id: str, req: ExperimentUpdateRequest):
+    proto_id_val = req.protocol_id
+    if not proto_id_val and req.protocol_ids:
+        proto_id_val = ", ".join(req.protocol_ids)
+
     result = storage.update_experiment(
         project_id=project_id,
         experiment_id=experiment_id,
@@ -240,7 +267,7 @@ async def update_project_experiment(project_id: str, experiment_id: str, req: Ex
         author=req.author,
         tags=req.tags,
         summary=req.summary,
-        protocol_id=req.protocol_id
+        protocol_id=proto_id_val
     )
     if not result:
         raise HTTPException(status_code=404, detail="Experiment not found")

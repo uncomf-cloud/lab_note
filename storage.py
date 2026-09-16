@@ -610,15 +610,20 @@ def create_experiment(
     content = initial_content
     if not content:
         if protocol_id:
-            proto = get_protocol(protocol_id)
-            if proto:
-                proto_title = proto.get("title", protocol_id)
-                proto_body = proto.get("content", "- [ ] 手順1\n- [ ] 手順2\n- [ ] 手順3")
+            # Handle comma-separated protocol IDs or single ID
+            pids = [p.strip() for p in protocol_id.split(",") if p.strip()] if isinstance(protocol_id, str) else list(protocol_id)
+            protocol_links = []
+            for pid in pids:
+                proto = get_protocol(pid)
+                p_title = proto.get("title", pid) if proto else pid
+                protocol_links.append(f"- [プロトコル] [{p_title} ({pid})](/protocols/{pid}/preview)")
+            
+            if protocol_links:
+                proto_list_str = "\n".join(protocol_links)
                 content = f"""## 目的
 
 ## 実験手順・方法
-### プロトコル：{proto_title}
-{proto_body}
+{proto_list_str}
 
 ## 結果
 - 
@@ -629,9 +634,8 @@ def create_experiment(
             content = """## 目的
 
 ## 実験手順・方法
-- [ ] 手順1
-- [ ] 手順2
-- [ ] 手順3
+- [ ] ステップ1
+- [ ] ステップ2
 
 ## 結果
 - 

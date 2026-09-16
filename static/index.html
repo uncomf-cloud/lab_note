@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>電子実験ノート</title>
+  <link rel="icon" type="image/png" href="/static/app_icon.png">
+  <link rel="shortcut icon" href="/favicon.ico">
   <link rel="stylesheet" href="/static/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -14,7 +16,10 @@
   <!-- Sidebar (常に表示) -->
   <aside class="sidebar" id="app-sidebar">
     <div class="sidebar-header">
-      <div class="sidebar-title">電子実験ノート</div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <img src="/static/app_icon.png" alt="電子実験ノート ロゴ" style="width: 26px; height: 26px; border-radius: 6px; object-fit: contain;">
+        <div class="sidebar-title">電子実験ノート</div>
+      </div>
     </div>
     
     <nav class="sidebar-menu">
@@ -151,11 +156,24 @@
 
             <!-- Row 2: Protocol (1/4) + Date (1/4) + Status (1/4) + Tags (1/4) -->
             <div class="form-row-2">
-              <div class="form-group-compact">
-                <label>採用プロトコル</label>
-                <select id="input-protocol" class="form-select-compact" onchange="onProtocolDropdownChange(this.value)">
-                  <option value="">(プロトコルなし)</option>
-                </select>
+              <div class="form-group-compact protocol-multiselect-group">
+                <label>採用プロトコル (複数選択可)</label>
+                <div class="protocol-multiselect-container" id="protocol-multiselect-container">
+                  <div class="protocol-select-trigger" id="protocol-select-trigger" onclick="toggleProtocolDropdown(event)">
+                    <div id="protocol-selected-tags" class="protocol-selected-tags">
+                      <span class="protocol-placeholder" id="protocol-placeholder">(プロトコルなし)</span>
+                    </div>
+                    <span class="protocol-arrow" id="protocol-arrow">▾</span>
+                  </div>
+                  <div class="protocol-dropdown-panel" id="protocol-dropdown-panel" style="display: none;" onclick="event.stopPropagation()">
+                    <div class="protocol-search-box">
+                      <input type="text" id="protocol-search-input" placeholder="プロトコルを検索..." oninput="filterProtocolDropdown(this.value)">
+                    </div>
+                    <div class="protocol-checkbox-list" id="protocol-checkbox-list">
+                      <!-- Populated by JS -->
+                    </div>
+                  </div>
+                </div>
               </div>
               <div class="form-group-compact">
                 <label>実施日</label>
@@ -227,11 +245,22 @@
         <div class="view-header">
           <div>
             <h1 class="view-title">標準プロトコル原本一覧</h1>
-            <p style="color: var(--text-muted); font-size: 0.85rem;">再利用可能な実験手順テンプレート (右クリックで編集・複製・削除)</p>
+            <p style="color: var(--text-muted); font-size: 0.85rem;">左クリックで複数選択 / 右クリックで選択プロトコルからノート作成・編集・複製・削除</p>
           </div>
-          <button class="btn btn-primary" onclick="openNewProtocolModal()">
-            <span>➕</span> 新規プロトコル登録
-          </button>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div id="protocol-selection-actions" style="display: none; align-items: center; gap: 8px;">
+              <span id="protocol-selected-count-badge" style="font-size: 0.82rem; padding: 4px 8px; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; border-radius: 4px; font-weight: 600;">0件選択中</span>
+              <button class="btn btn-primary" onclick="startExperimentFromSelectedProtocols()" style="padding: 6px 12px; font-size: 0.85rem;">
+                📝 選択プロトコルからノート作成
+              </button>
+              <button class="btn btn-secondary" onclick="clearProtocolSelection()" style="padding: 6px 10px; font-size: 0.85rem;">
+                選択解除
+              </button>
+            </div>
+            <button class="btn btn-primary" onclick="openNewProtocolModal()">
+              <span>➕</span> 新規プロトコル登録
+            </button>
+          </div>
         </div>
 
         <div id="protocols-grid" class="cards-grid">

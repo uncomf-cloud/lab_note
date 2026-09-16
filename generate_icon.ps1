@@ -48,7 +48,7 @@ $g.DrawLine($thinPen, 96, 128, 160, 128)
 $g.DrawLine($thinPen, 96, 161, 140, 161)
 
 # Save PNG and ICO
-$outDir = "C:\Users\uncom\Documents\lab_note"
+$outDir = if ($PSScriptRoot) { $PSScriptRoot } else { Get-Location }
 $pngPath = Join-Path $outDir "app_icon.png"
 $icoPath = Join-Path $outDir "app_icon.ico"
 
@@ -60,7 +60,15 @@ $fileStream = New-Object System.IO.FileStream $icoPath, ([System.IO.FileMode]::C
 $icon.Save($fileStream)
 $fileStream.Close()
 
+# Also copy to static directory
+$staticDir = Join-Path $outDir "static"
+if (Test-Path $staticDir) {
+    Copy-Item $pngPath (Join-Path $staticDir "app_icon.png") -Force
+    Copy-Item $icoPath (Join-Path $staticDir "app_icon.ico") -Force
+    Copy-Item $icoPath (Join-Path $staticDir "favicon.ico") -Force
+}
+
 $g.Dispose()
 $bmp.Dispose()
 
-Write-Host "Icons generated successfully at: $icoPath"
+Write-Host "Icons generated successfully at: $icoPath and copied to static/"

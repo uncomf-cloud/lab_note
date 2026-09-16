@@ -64,6 +64,15 @@ let currentSelectedProjectId = null;
 let selectedTag = null;
 let expandedProjects = new Set();
 
+// Protocol selection states (Left-click multi-select & editor multi-select)
+let selectedProtocolIds = new Set();
+let editorSelectedProtocolIds = new Set();
+
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
 // Hidden projects stored in localStorage
 let hiddenProjects = new Set(JSON.parse(localStorage.getItem("lab_note_hidden_projects") || "[]"));
 
@@ -680,15 +689,15 @@ async function openEditorForNew(projectId = null) {
   document.getElementById("editor-page-heading").textContent = "新規実験ノート作成";
 
   await populateProjectSelect(currentEditingProjectId);
-  await populateProtocolSelect();
+  editorSelectedProtocolIds.clear();
+  await populateProtocolMultiSelect([]);
 
   document.getElementById("input-project").disabled = false;
   document.getElementById("input-title").value = "";
   document.getElementById("input-date").value = new Date().toISOString().split("T")[0];
   document.getElementById("input-status").value = "in_progress";
   document.getElementById("input-tags").value = "";
-  document.getElementById("input-protocol").value = "";
-  document.getElementById("markdown-input").value = `## 目的\n\n## 実験手順・方法\n- [ ] ステップ1\n- [ ] ステップ2\n\n## 結果\n- \n\n## 考察\n`;
+  document.getElementById("markdown-input").value = generateInitialMarkdownWithProtocols([]);
 
   updatePreview();
   renderAttachments([]);
@@ -709,7 +718,6 @@ async function openEditorForExperiment(projectId, expId) {
   document.getElementById("editor-page-heading").textContent = "実験ノートの編集";
 
   await populateProjectSelect(projectId);
-  await populateProtocolSelect();
 
   try {
     const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/experiments/${encodeURIComponent(expId)}`);
@@ -725,9 +733,15 @@ async function openEditorForExperiment(projectId, expId) {
     document.getElementById("input-status").value = exp.status || "in_progress";
     document.getElementById("input-tags").value = (exp.tags || []).join(", ");
     document.getElementById("markdown-input").value = exp.content || "";
+
+    editorSelectedProtocolIds.clear();
     if (exp.protocol_id) {
-      document.getElementById("input-protocol").value = exp.protocol_id;
+      exp.protocol_id.split(",").map(s => s.trim()).filter(Boolean).forEach(id => editorSelectedProtocolIds.add(id));
     }
+    if (Array.isArray(exp.protocol_ids)) {
+      exp.protocol_ids.forEach(id => editorSelectedProtocolIds.add(id));
+    }
+    await populateProtocolMultiSelect(Array.from(editorSelectedProtocolIds));
 
     renderAttachments(exp.attachments || []);
     updatePreview();
@@ -755,9 +769,16 @@ async function duplicateExperimentToEditor(projectId, expId) {
     document.getElementById("input-date").value = new Date().toISOString().split("T")[0];
     document.getElementById("input-status").value = "in_progress";
     document.getElementById("input-tags").value = (original.tags || []).join(", ");
+    
+    editorSelectedProtocolIds.clear();
     if (original.protocol_id) {
-      document.getElementById("input-protocol").value = original.protocol_id;
+      original.protocol_id.split(",").map(s => s.trim()).filter(Boolean).forEach(id => editorSelectedProtocolIds.add(id));
     }
+    if (Array.isArray(original.protocol_ids)) {
+      original.protocol_ids.forEach(id => editorSelectedProtocolIds.add(id));
+    }
+    await populateProtocolMultiSelect(Array.from(editorSelectedProtocolIds));
+
     document.getElementById("markdown-input").value = original.content || "";
 
     updatePreview();
@@ -782,52 +803,197 @@ async function populateProjectSelect(selectedProjectId = null) {
   });
 }
 
-async function populateProtocolSelect(selectedProtocolId = null) {
-  const selectEl = document.getElementById("input-protocol");
-  if (!selectEl) return;
+// ==========================================
+// Protocol Multi-Select Component Logic
+// ==========================================
+
+async function populateProtocolMultiSelect(selectedIds = []) {
+  editorSelectedProtocolIds = new Set(selectedIds);
   try {
     const res = await fetch("/api/protocols");
     allProtocols = await res.json();
-    selectEl.innerHTML = '<option value="">(プロトコルなし)</option>';
-    allProtocols.forEach((p) => {
-      const opt = document.createElement("option");
-      opt.value = p.id;
-      opt.textContent = `${p.title} (${p.category || "General"})`;
-      if (p.id === selectedProtocolId) {
-        opt.selected = true;
-      }
-      selectEl.appendChild(opt);
-    });
+    renderProtocolCheckboxList();
+    updateProtocolMultiSelectUI();
   } catch (e) {
-    console.error("Error populating protocols", e);
+    console.error("Error populating protocol multiselect", e);
   }
 }
 
-async function applyProtocolTemplate(protocolId) {
-  try {
-    const res = await fetch(`/api/protocols/${encodeURIComponent(protocolId)}`);
-    if (!res.ok) return;
-    const proto = await res.json();
-    if (!document.getElementById("input-title").value) {
-      document.getElementById("input-title").value = `${proto.title}の検討`;
+// Legacy fallback helper
+async function populateProtocolSelect(selectedProtocolId = null) {
+  await populateProtocolMultiSelect(selectedProtocolId ? [selectedProtocolId] : []);
+}
+
+function renderProtocolCheckboxList(filterText = "") {
+  const listEl = document.getElementById("protocol-checkbox-list");
+  if (!listEl) return;
+
+  const query = (filterText || "").toLowerCase().trim();
+  const filtered = allProtocols.filter(p => {
+    if (!query) return true;
+    return (p.title && p.title.toLowerCase().includes(query)) ||
+           (p.id && p.id.toLowerCase().includes(query)) ||
+           (p.category && p.category.toLowerCase().includes(query));
+  });
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = '<div style="padding: 10px; color: var(--text-muted); font-size: 0.8rem; text-align: center;">該当するプロトコルがありません</div>';
+    return;
+  }
+
+  listEl.innerHTML = filtered.map(p => {
+    const isChecked = editorSelectedProtocolIds.has(p.id);
+    return `
+      <label class="protocol-option-item" onclick="event.stopPropagation()">
+        <input type="checkbox" value="${p.id}" ${isChecked ? "checked" : ""} onchange="onProtocolOptionToggled('${p.id}', this.checked)">
+        <div class="protocol-option-label">
+          <span class="protocol-option-title">${escapeHtml(p.title)}</span>
+          <span class="protocol-option-sub">🏷️ ${p.id} (${escapeHtml(p.category || "General")})</span>
+        </div>
+      </label>
+    `;
+  }).join("");
+}
+
+function updateProtocolMultiSelectUI() {
+  const tagsContainer = document.getElementById("protocol-selected-tags");
+  if (!tagsContainer) return;
+
+  if (editorSelectedProtocolIds.size === 0) {
+    tagsContainer.innerHTML = '<span class="protocol-placeholder" id="protocol-placeholder">(プロトコルなし)</span>';
+  } else {
+    tagsContainer.innerHTML = Array.from(editorSelectedProtocolIds).map(id => {
+      const proto = allProtocols.find(p => p.id === id);
+      const title = proto ? proto.title : id;
+      return `
+        <span class="protocol-tag-chip" title="管理ID: ${id}">
+          <span>${escapeHtml(title)}</span>
+          <button type="button" class="chip-del-btn" onclick="event.stopPropagation(); removeSelectedProtocol('${id}')">&times;</button>
+        </span>
+      `;
+    }).join("");
+  }
+
+  // 同期チェックボックス
+  const checkboxes = document.querySelectorAll("#protocol-checkbox-list input[type='checkbox']");
+  checkboxes.forEach(cb => {
+    cb.checked = editorSelectedProtocolIds.has(cb.value);
+  });
+}
+
+function toggleProtocolDropdown(event) {
+  if (event) event.stopPropagation();
+  const panel = document.getElementById("protocol-dropdown-panel");
+  const trigger = document.getElementById("protocol-select-trigger");
+  if (!panel) return;
+  const isOpen = panel.style.display !== "none";
+  if (isOpen) {
+    closeProtocolDropdown();
+  } else {
+    panel.style.display = "flex";
+    if (trigger) trigger.classList.add("active");
+    const searchInput = document.getElementById("protocol-search-input");
+    if (searchInput) {
+      searchInput.value = "";
+      renderProtocolCheckboxList("");
+      setTimeout(() => searchInput.focus(), 50);
     }
-    
-    const protoContent = proto.content || "- [ ] ステップ1\n- [ ] ステップ2";
-    const templateContent = `## 目的
+  }
+}
 
-## 実験手順・方法
-### プロトコル：${proto.title || ""}
-${protoContent}
+function closeProtocolDropdown() {
+  const panel = document.getElementById("protocol-dropdown-panel");
+  const trigger = document.getElementById("protocol-select-trigger");
+  if (panel) panel.style.display = "none";
+  if (trigger) trigger.classList.remove("active");
+}
 
-## 結果
-- 
+function filterProtocolDropdown(val) {
+  renderProtocolCheckboxList(val);
+}
 
-## 考察
-`;
-    document.getElementById("markdown-input").value = templateContent;
-    updatePreview();
-  } catch (e) {
-    console.error("Failed to load protocol template", e);
+function onProtocolOptionToggled(protoId, isChecked) {
+  if (isChecked) {
+    editorSelectedProtocolIds.add(protoId);
+  } else {
+    editorSelectedProtocolIds.delete(protoId);
+  }
+  updateProtocolMultiSelectUI();
+  updateMarkdownWithProtocols();
+}
+
+function removeSelectedProtocol(protoId) {
+  editorSelectedProtocolIds.delete(protoId);
+  updateProtocolMultiSelectUI();
+  updateMarkdownWithProtocols();
+}
+
+// Generate Requirement 5 Markdown format
+function generateInitialMarkdownWithProtocols(protoIds) {
+  if (!protoIds || protoIds.length === 0) {
+    return `## 目的\n\n## 実験手順・方法\n- [ ] ステップ1\n- [ ] ステップ2\n\n## 結果\n- \n\n## 考察\n`;
+  }
+
+  const links = protoIds.map(id => {
+    const proto = allProtocols.find(p => p.id === id);
+    const title = proto ? proto.title : id;
+    return `- [プロトコル] [${title} (${id})](/protocols/${id}/preview)`;
+  }).join("\n");
+
+  return `## 目的\n\n## 実験手順・方法\n${links}\n\n## 結果\n- \n\n## 考察\n`;
+}
+
+function updateMarkdownWithProtocols() {
+  const inputEl = document.getElementById("markdown-input");
+  if (!inputEl) return;
+  const currentText = inputEl.value;
+  const protoIds = Array.from(editorSelectedProtocolIds);
+
+  const isDefaultOrEmpty = !currentText.trim() || 
+    (currentText.includes("## 目的") && currentText.includes("## 実験手順・方法") && currentText.includes("## 結果") && currentText.includes("## 考察"));
+
+  const protoLinksStr = protoIds.length > 0
+    ? protoIds.map(id => {
+        const proto = allProtocols.find(p => p.id === id);
+        const title = proto ? proto.title : id;
+        return `- [プロトコル] [${title} (${id})](/protocols/${id}/preview)`;
+      }).join("\n")
+    : "- [ ] ステップ1\n- [ ] ステップ2";
+
+  if (isDefaultOrEmpty) {
+    const regex = /(## 実験手順・方法\s*\n)([\s\S]*?)(\n\s*## 結果)/;
+    if (regex.test(currentText)) {
+      inputEl.value = currentText.replace(regex, `$1${protoLinksStr}\n$3`);
+    } else {
+      inputEl.value = generateInitialMarkdownWithProtocols(protoIds);
+    }
+  } else {
+    // 既存ノートの場合
+    const regex = /(## 実験手順・方法\s*\n)([\s\S]*?)(\n\s*## 結果)/;
+    if (regex.test(currentText)) {
+      inputEl.value = currentText.replace(regex, `$1${protoLinksStr}\n$3`);
+    } else {
+      inputEl.value = currentText + `\n\n## 実験手順・方法\n${protoLinksStr}\n`;
+    }
+  }
+
+  // 自動タイトル補完
+  const titleInput = document.getElementById("input-title");
+  if (titleInput && !titleInput.value.trim() && protoIds.length > 0) {
+    const firstProto = allProtocols.find(p => p.id === protoIds[0]);
+    if (firstProto) {
+      titleInput.value = protoIds.length === 1 ? `${firstProto.title}の検討` : `${firstProto.title} 等の検討`;
+    }
+  }
+
+  updatePreview();
+}
+
+async function applyProtocolTemplate(protocolId) {
+  if (protocolId) {
+    editorSelectedProtocolIds.add(protocolId);
+    updateProtocolMultiSelectUI();
+    updateMarkdownWithProtocols();
   }
 }
 
@@ -843,6 +1009,10 @@ function updatePreview() {
 
   if (typeof marked !== "undefined") {
     previewContainer.innerHTML = marked.parse(markdownText);
+    previewContainer.querySelectorAll("a").forEach(a => {
+      a.setAttribute("target", "_blank");
+      a.setAttribute("rel", "noopener noreferrer");
+    });
   } else {
     previewContainer.textContent = markdownText;
   }
@@ -863,7 +1033,8 @@ async function saveExperiment() {
 
   const date = document.getElementById("input-date").value;
   const status = document.getElementById("input-status").value;
-  const protocol_id = document.getElementById("input-protocol").value;
+  const proto_ids = Array.from(editorSelectedProtocolIds);
+  const protocol_id = proto_ids.join(", ");
   const tags = document.getElementById("input-tags")
     .value.split(",")
     .map((t) => t.trim())
@@ -875,7 +1046,7 @@ async function saveExperiment() {
       const res = await fetch(`/api/projects/${encodeURIComponent(currentEditingProjectId)}/experiments/${encodeURIComponent(currentEditingExpId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, date, status, protocol_id, tags, summary: "", content }),
+        body: JSON.stringify({ title, date, status, protocol_id, protocol_ids: proto_ids, tags, summary: "", content }),
       });
       if (!res.ok) throw new Error("Update failed");
       showToast("実験ノートを更新しました", "success");
@@ -884,7 +1055,7 @@ async function saveExperiment() {
       const res = await fetch("/api/experiments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id, title, date, status, protocol_id, tags, summary: "", content }),
+        body: JSON.stringify({ project_id, title, date, status, protocol_id, protocol_ids: proto_ids, tags, summary: "", content }),
       });
       if (!res.ok) throw new Error("Create failed");
       const created = await res.json();
@@ -1449,45 +1620,120 @@ async function loadProtocols() {
 
     container.innerHTML = allProtocols
       .map((proto) => {
+        const isSelected = selectedProtocolIds.has(proto.id);
         const tagsHtml = (proto.tags || [])
-          .map((t) => `<span class="tag-badge">#${t}</span>`)
+          .map((t) => `<span class="tag-badge">#${escapeHtml(t)}</span>`)
           .join("");
         return `
-        <div class="card" oncontextmenu="handleProtocolContextMenu(event, '${proto.id}')">
+        <div class="card ${isSelected ? 'card-selected' : ''}" 
+             id="proto-card-${proto.id}" 
+             onclick="toggleProtocolCardSelection('${proto.id}', event)" 
+             oncontextmenu="handleProtocolContextMenu(event, '${proto.id}')">
+          <div class="card-select-badge">✓</div>
           <div>
             <div class="card-top" style="margin-bottom: 2px;">
               <span class="protocol-id-badge" style="font-family: monospace; font-size: 0.8rem; font-weight: 700; color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 6px; border-radius: 4px;" title="管理ID: ${proto.id}">🏷️ ${proto.id}</span>
               <span class="sidebar-badge">v${proto.version || "1.0"}</span>
             </div>
-            <div class="card-title" style="margin-top: 4px;">${proto.title}</div>
-            <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 8px;">${proto.description || ""}</div>
+            <div class="card-title" style="margin-top: 4px;">${escapeHtml(proto.title)}</div>
+            <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 8px;">${escapeHtml(proto.description || "")}</div>
             <div class="card-tags">${tagsHtml}</div>
           </div>
-          <div class="card-footer">
+          <div class="card-footer" onclick="event.stopPropagation()">
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span>🗂️ ${proto.category || "General"}</span>
+              <span>🗂️ ${escapeHtml(proto.category || "General")}</span>
               ${proto.attachments && proto.attachments.length > 0 ? `<span style="font-size: 0.78rem; color: var(--text-muted);" title="${proto.attachments.length}個の参考添付ファイル">📎 ${proto.attachments.length}</span>` : ""}
             </div>
-            <button class="btn btn-secondary" style="padding: 3px 6px; font-size: 0.75rem;" 
-              onclick="startExperimentFromProtocol('${proto.id}')">
-              ⚡ この手順で実験開始
-            </button>
+            <div style="display: flex; gap: 6px;">
+              <a class="btn btn-secondary" style="padding: 3px 6px; font-size: 0.75rem; text-decoration: none;" 
+                 href="/protocols/${encodeURIComponent(proto.id)}/preview" target="_blank" onclick="event.stopPropagation()">
+                👁️ プレビュー
+              </a>
+              <button class="btn btn-secondary" style="padding: 3px 6px; font-size: 0.75rem;" 
+                onclick="event.stopPropagation(); startExperimentFromSingleProtocol('${proto.id}')">
+                ⚡ 実験開始
+              </button>
+            </div>
           </div>
         </div>
       `;
       })
       .join("");
+
+    updateProtocolCardSelectionUI();
   } catch (e) {
     console.error("Error loading protocols", e);
   }
 }
 
-// Right-click on protocol card
+// Left-click card multi-select handling
+function toggleProtocolCardSelection(protoId, event) {
+  if (selectedProtocolIds.has(protoId)) {
+    selectedProtocolIds.delete(protoId);
+  } else {
+    selectedProtocolIds.add(protoId);
+  }
+  updateProtocolCardSelectionUI();
+}
+
+function updateProtocolCardSelectionUI() {
+  allProtocols.forEach(p => {
+    const el = document.getElementById(`proto-card-${p.id}`);
+    if (el) {
+      if (selectedProtocolIds.has(p.id)) {
+        el.classList.add("card-selected");
+      } else {
+        el.classList.remove("card-selected");
+      }
+    }
+  });
+
+  const actions = document.getElementById("protocol-selection-actions");
+  const countBadge = document.getElementById("protocol-selected-count-badge");
+  const count = selectedProtocolIds.size;
+  if (actions && countBadge) {
+    if (count > 0) {
+      actions.style.display = "flex";
+      countBadge.textContent = `${count}件選択中`;
+    } else {
+      actions.style.display = "none";
+    }
+  }
+}
+
+function clearProtocolSelection() {
+  selectedProtocolIds.clear();
+  updateProtocolCardSelectionUI();
+}
+
+// Right-click on protocol card (Requirement 4)
 function handleProtocolContextMenu(event, protoId) {
   event.preventDefault();
   event.stopPropagation();
 
+  // If the right-clicked protocol is not selected yet, select it
+  if (!selectedProtocolIds.has(protoId)) {
+    selectedProtocolIds.add(protoId);
+    updateProtocolCardSelectionUI();
+  }
+
+  const count = selectedProtocolIds.size;
+  const label = count > 1
+    ? `選択したプロトコルからノートを作成 (${count}件)`
+    : "選択したプロトコルからノートを作成";
+
   const items = [
+    {
+      icon: "📝",
+      label: label,
+      action: () => startExperimentFromSelectedProtocols()
+    },
+    { divider: true },
+    {
+      icon: "👁️",
+      label: "プレビューを別画面で表示",
+      action: () => window.open(`/protocols/${encodeURIComponent(protoId)}/preview`, "_blank")
+    },
     {
       icon: "✏️",
       label: "編集",
@@ -1855,13 +2101,49 @@ async function saveProtocolFromModal() {
   }
 }
 
-async function startExperimentFromProtocol(protoId) {
+async function startExperimentFromSelectedProtocols() {
+  const protoIds = Array.from(selectedProtocolIds);
+  if (protoIds.length === 0) {
+    showToast("プロトコルが選択されていません", "warning");
+    return;
+  }
+
   await openEditorForNew();
-  document.getElementById("input-protocol").value = protoId;
-  await applyProtocolTemplate(protoId);
+  await populateProtocolMultiSelect(protoIds);
+  updateMarkdownWithProtocols();
+}
+
+async function startExperimentFromSingleProtocol(protoId) {
+  await openEditorForNew();
+  await populateProtocolMultiSelect([protoId]);
+  updateMarkdownWithProtocols();
+}
+
+async function startExperimentFromProtocol(protoId) {
+  await startExperimentFromSingleProtocol(protoId);
 }
 
 function closeModal(modalId) {
   const modal = document.getElementById(modalId);
   if (modal) modal.style.display = "none";
 }
+
+// Global click handlers for multi-select dropdown closing and Markdown preview link interception
+document.addEventListener("click", (e) => {
+  // Close protocol multi-select dropdown if clicked outside
+  const multiselect = document.getElementById("protocol-multiselect-container");
+  if (multiselect && !multiselect.contains(e.target)) {
+    closeProtocolDropdown();
+  }
+
+  // Intercept Markdown preview protocol links to open in a new window/tab (Requirement 5)
+  const link = e.target.closest("a");
+  if (link && link.getAttribute("href")) {
+    const href = link.getAttribute("href");
+    if (href.startsWith("/protocols/") || href.includes("preview") || href.startsWith("http")) {
+      e.preventDefault();
+      window.open(href, "_blank");
+    }
+  }
+});
+
