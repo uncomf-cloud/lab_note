@@ -169,7 +169,7 @@ def list_experiments(
         project_id: Optional project identifier (e.g. '01_tNP_assay', 'B02_SDF4'). If empty, searches all projects.
         search: Optional search term matching note titles or summaries.
         tag: Optional tag filter.
-        status: Optional status filter ('in_progress', 'completed', 'failed').
+        status: Optional status filter ('in_progress', 'completed').
     """
     try:
         p_id = project_id if project_id else None
@@ -278,7 +278,7 @@ def update_experiment(
         experiment_id: Experiment directory name.
         title: Updated title.
         content: Updated Markdown body (observations, results, discussion).
-        status: Progress status ('in_progress', 'completed', 'failed').
+        status: Progress status ('in_progress', 'completed').
         author: Experimenter or agent name.
         tags: List of tags.
         summary: Updated summary.

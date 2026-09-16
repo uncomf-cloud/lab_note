@@ -22,12 +22,11 @@ LAB_WORKSPACE_PATH = Path(lab_path_str).resolve()
 
 # Projects and protocols directory in laboratory
 PROJECTS_DIR = LAB_WORKSPACE_PATH / "projects"
-PROTOCOLS_DIR = LAB_WORKSPACE_PATH / "protocols"
 SHARED_PROTOCOLS_DIR = LAB_WORKSPACE_PATH / "shared" / "protocols"
+PROTOCOLS_DIR = SHARED_PROTOCOLS_DIR
 
 def ensure_workspace_dirs() -> None:
     """Ensure that laboratory protocols and projects directories exist."""
-    PROTOCOLS_DIR.mkdir(parents=True, exist_ok=True)
     PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
     SHARED_PROTOCOLS_DIR.mkdir(parents=True, exist_ok=True)
 

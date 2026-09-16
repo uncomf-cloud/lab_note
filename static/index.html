@@ -115,8 +115,26 @@
       <!-- 2. Editor View (画面遷移せず左ペインを残したまま表示) -->
       <section id="view-editor" style="display: none; height: 100%;">
         <div class="editor-container">
+          <!-- Metadata Collapsed Minimal Bar (折り畳み時に表示) -->
+          <div id="editor-meta-collapsed-bar" class="editor-meta-collapsed-bar" style="display: none;">
+            <div class="editor-meta-summary-text">
+              <span id="collapsed-project-name" style="font-weight: 600; color: var(--primary);">📁 テーマ</span>
+              <span style="color: var(--border);">|</span>
+              <span id="collapsed-experiment-title" style="font-weight: 500; max-width: 380px; overflow: hidden; text-overflow: ellipsis;">タイトル未設定</span>
+              <span id="collapsed-status-badge" class="sidebar-badge-mini">⏳ 進行中</span>
+            </div>
+            <button type="button" class="btn-toggle-meta" onclick="toggleEditorMetaCard()" title="研究テーマ〜タグのメタ情報を展開">
+              <span>▼ 上部情報を展開</span>
+            </button>
+          </div>
+
           <!-- Metadata 2-row Compact Card -->
-          <div class="editor-header-card">
+          <div class="editor-header-card" id="editor-header-card">
+            <div class="editor-header-card-header">
+              <button type="button" class="btn-toggle-meta" onclick="toggleEditorMetaCard()" title="上部エリアを折り畳んでMarkdown表示領域を拡大">
+                <span>▲ 上部情報を折り畳む</span>
+              </button>
+            </div>
             <!-- Row 1: Project (1/3) + Title (2/3) -->
             <div class="form-row-1">
               <div class="form-group-compact">
@@ -148,7 +166,6 @@
                 <select id="input-status" class="form-select-compact">
                   <option value="in_progress">進行中 (in_progress)</option>
                   <option value="completed">完了 (completed)</option>
-                  <option value="failed">中断 / 要再試 (failed)</option>
                 </select>
               </div>
               <div class="form-group-compact">
@@ -257,8 +274,15 @@
         <input type="hidden" id="proto-edit-id" value="">
         <div style="display: flex; flex-direction: column; gap: 10px;">
           <div class="form-group-compact">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <label>管理ID (基本命名則: &lt;No.&gt;-&lt;name&gt;-yymmdd) *</label>
+              <span style="font-size: 0.72rem; color: var(--primary); cursor: pointer;" onclick="autoGenerateProtocolId()" title="管理IDを自動生成">⚡ 自動採番</span>
+            </div>
+            <input type="text" id="proto-id-input" class="form-input-compact" placeholder="例: 01-PCR-260916">
+          </div>
+          <div class="form-group-compact">
             <label>プロトコル名 / タイトル *</label>
-            <input type="text" id="proto-title" class="form-input-compact" placeholder="例: 標準PCR増幅プロトコル">
+            <input type="text" id="proto-title" class="form-input-compact" placeholder="例: 標準PCR増幅プロトコル" oninput="onProtoTitleInput(this.value)">
           </div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
             <div class="form-group-compact">
@@ -314,7 +338,8 @@
         <button onclick="closeModal('csv-modal')" style="background:none; border:none; font-size: 1.2rem; cursor:pointer;">&times;</button>
       </div>
       <div class="modal-body" id="csv-modal-content" style="max-height: 480px; overflow: auto;"></div>
-      <div class="modal-footer">
+      <div class="modal-footer" style="display: flex; justify-content: space-between;">
+        <button class="btn btn-primary" id="btn-insert-csv-modal" onclick="insertCurrentCsvModalToEditor()">📋 Markdown表として本文に挿入</button>
         <button class="btn btn-secondary" onclick="closeModal('csv-modal')">閉じる</button>
       </div>
     </div>

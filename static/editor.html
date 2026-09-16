@@ -95,7 +95,6 @@
               <select id="input-status" class="form-select">
                 <option value="in_progress">進行中 (in_progress)</option>
                 <option value="completed">完了 (completed)</option>
-                <option value="failed">中断 / 要再試 (failed)</option>
               </select>
             </div>
           </div>
@@ -213,9 +212,7 @@
 
     async function onProtocolDropdownChange(protocolId) {
       if (!protocolId) return;
-      if (!document.getElementById("markdown-input").value.trim() || confirm("選択したプロトコルのテンプレート内容をノートに展開しますか？")) {
-        await applyProtocolTemplate(protocolId);
-      }
+      await applyProtocolTemplate(protocolId);
     }
   </script>
 </body>

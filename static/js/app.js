@@ -95,7 +95,15 @@ async function initApp() {
   const markdownInput = document.getElementById("markdown-input");
   if (markdownInput) {
     markdownInput.addEventListener("input", updatePreview);
+    initEditorDragAndPaste(markdownInput);
   }
+
+  const inputTitle = document.getElementById("input-title");
+  if (inputTitle) inputTitle.addEventListener("input", updateCollapsedMetaSummary);
+  const inputProject = document.getElementById("input-project");
+  if (inputProject) inputProject.addEventListener("change", updateCollapsedMetaSummary);
+  const inputStatus = document.getElementById("input-status");
+  if (inputStatus) inputStatus.addEventListener("change", updateCollapsedMetaSummary);
 }
 
 // ==========================================
@@ -299,6 +307,22 @@ async function refreshProjectsAndTree() {
   }
 }
 
+let subgroupExpandedState = {};
+
+function isSubgroupExpanded(projectId, statusGroup) {
+  const key = `${projectId}_${statusGroup}`;
+  if (subgroupExpandedState[key] !== undefined) {
+    return subgroupExpandedState[key];
+  }
+  return statusGroup === "in_progress"; // 進行中はデフォルト展開、完了はデフォルト折り畳み
+}
+
+function toggleSubgroup(projectId, statusGroup) {
+  const key = `${projectId}_${statusGroup}`;
+  subgroupExpandedState[key] = !isSubgroupExpanded(projectId, statusGroup);
+  renderProjectsTree();
+}
+
 function renderProjectsTree() {
   const container = document.getElementById("project-tree-list");
   if (!container) return;
@@ -323,18 +347,64 @@ function renderProjectsTree() {
     
     let expItemsHtml = "";
     if (isExpanded && p.experiments && p.experiments.length > 0) {
-      expItemsHtml = p.experiments.map((e) => {
-        const icon = e.status === "completed" ? "✅" : (e.status === "failed" ? "❌" : "📝");
+      // 実施日昇順（早い順） -> ノート名昇順
+      const sortedExps = [...p.experiments].sort((a, b) => {
+        const dateA = a.date || "9999-99-99";
+        const dateB = b.date || "9999-99-99";
+        if (dateA !== dateB) return dateA.localeCompare(dateB);
+        return (a.title || a.id || "").localeCompare(b.title || b.id || "");
+      });
+
+      const inProgressList = sortedExps.filter(e => e.status !== "completed");
+      const completedList = sortedExps.filter(e => e.status === "completed");
+
+      const isProgExpanded = isSubgroupExpanded(p.id, "in_progress");
+      const isCompExpanded = isSubgroupExpanded(p.id, "completed");
+
+      const renderItem = (e) => {
+        const icon = e.status === "completed" ? "✅" : "📝";
         const isEditingThis = currentEditingProjectId === p.id && currentEditingExpId === e.id;
+        const dateStr = e.date ? `[${e.date}] ` : "";
         return `
           <div class="experiment-tree-item ${isEditingThis ? 'active' : ''}" 
                onclick="event.stopPropagation(); openEditorForExperiment('${p.id}', '${e.id}')"
                oncontextmenu="handleExperimentContextMenu(event, '${p.id}', '${e.id}')">
             <span>${icon}</span>
-            <span style="overflow: hidden; text-overflow: ellipsis;" title="${e.title}">${e.title}</span>
+            <span style="overflow: hidden; text-overflow: ellipsis;" title="${e.date ? e.date + ' ' : ''}${e.title}">${dateStr}${e.title}</span>
           </div>
         `;
-      }).join("");
+      };
+
+      expItemsHtml = `
+        <div class="tree-subgroup">
+          <div class="tree-subgroup-header" onclick="event.stopPropagation(); toggleSubgroup('${p.id}', 'in_progress')" title="クリックして開閉">
+            <div class="tree-subgroup-title">
+              <span class="tree-subgroup-toggle ${isProgExpanded ? 'expanded' : ''}">▶</span>
+              <span>⏳ 進行中</span>
+            </div>
+            <span class="sidebar-badge-mini">${inProgressList.length}</span>
+          </div>
+          ${isProgExpanded ? `
+            <div class="tree-subgroup-items">
+              ${inProgressList.length > 0 ? inProgressList.map(renderItem).join("") : '<div class="tree-empty-hint">(なし)</div>'}
+            </div>
+          ` : ''}
+        </div>
+        <div class="tree-subgroup" style="margin-top: 4px;">
+          <div class="tree-subgroup-header" onclick="event.stopPropagation(); toggleSubgroup('${p.id}', 'completed')" title="クリックして開閉">
+            <div class="tree-subgroup-title">
+              <span class="tree-subgroup-toggle ${isCompExpanded ? 'expanded' : ''}">▶</span>
+              <span>✅ 完了</span>
+            </div>
+            <span class="sidebar-badge-mini">${completedList.length}</span>
+          </div>
+          ${isCompExpanded ? `
+            <div class="tree-subgroup-items">
+              ${completedList.length > 0 ? completedList.map(renderItem).join("") : '<div class="tree-empty-hint">(なし)</div>'}
+            </div>
+          ` : ''}
+        </div>
+      `;
     } else if (isExpanded && expCount === 0) {
       expItemsHtml = '<div style="padding: 4px 8px; font-size: 0.75rem; color: #64748b;">ノートなし</div>';
     }
@@ -547,6 +617,18 @@ function filterAndRenderExperiments(query = "") {
     return matchesProject && matchesTag && matchesQuery;
   });
 
+  // 進行中 > 完了 が第1優先、その次に実施日の早い順（昇順）、ノート名（タイトル）昇順
+  filtered.sort((a, b) => {
+    const statusScoreA = a.status === "completed" ? 1 : 0;
+    const statusScoreB = b.status === "completed" ? 1 : 0;
+    if (statusScoreA !== statusScoreB) return statusScoreA - statusScoreB;
+
+    const dateA = a.date || "9999-99-99";
+    const dateB = b.date || "9999-99-99";
+    if (dateA !== dateB) return dateA.localeCompare(dateB);
+    return (a.title || a.id || "").localeCompare(b.title || b.id || "");
+  });
+
   if (filtered.length === 0) {
     container.innerHTML = `
       <div style="grid-column: 1/-1; text-align: center; padding: 36px; color: var(--text-muted);">
@@ -559,12 +641,7 @@ function filterAndRenderExperiments(query = "") {
   container.innerHTML = filtered
     .map((exp) => {
       const statusClass = `status-${exp.status || "in_progress"}`;
-      const statusText =
-        exp.status === "completed"
-          ? "完了"
-          : exp.status === "failed"
-          ? "中断/要再試"
-          : "進行中";
+      const statusText = exp.status === "completed" ? "完了" : "進行中";
       const tagsHtml = (exp.tags || [])
         .map((t) => `<span class="tag-badge">#${t}</span>`)
         .join("");
@@ -611,10 +688,12 @@ async function openEditorForNew(projectId = null) {
   document.getElementById("input-status").value = "in_progress";
   document.getElementById("input-tags").value = "";
   document.getElementById("input-protocol").value = "";
-  document.getElementById("markdown-input").value = `## 目的\n\n## 実験手順・方法\n- [ ] ステップ1\n- [ ] ステップ2\n\n## 結果\n- \n\n## 考察 & 次のアクション\n- `;
+  document.getElementById("markdown-input").value = `## 目的\n\n## 実験手順・方法\n- [ ] ステップ1\n- [ ] ステップ2\n\n## 結果\n- \n\n## 考察\n`;
 
   updatePreview();
   renderAttachments([]);
+  toggleEditorMetaCard(false);
+  updateCollapsedMetaSummary();
 
   document.getElementById("btn-delete-exp").style.display = "none";
 }
@@ -652,6 +731,7 @@ async function openEditorForExperiment(projectId, expId) {
 
     renderAttachments(exp.attachments || []);
     updatePreview();
+    updateCollapsedMetaSummary();
 
     document.getElementById("btn-delete-exp").style.display = "inline-flex";
   } catch (e) {
@@ -732,20 +812,17 @@ async function applyProtocolTemplate(protocolId) {
       document.getElementById("input-title").value = `${proto.title}の検討`;
     }
     
+    const protoContent = proto.content || "- [ ] ステップ1\n- [ ] ステップ2";
     const templateContent = `## 目的
-${proto.description || ""}
 
-## 採用プロトコル
-- 手順名: ${proto.title} (v${proto.version || "1.0"})
+## 実験手順・方法
+### プロトコル：${proto.title || ""}
+${protoContent}
 
-### 手順チェックリスト
-${proto.content || "- [ ] ステップ1\n- [ ] ステップ2"}
-
-## 測定結果・観察
+## 結果
 - 
 
-## 考察 & 次のアクション
-- 
+## 考察
 `;
     document.getElementById("markdown-input").value = templateContent;
     updatePreview();
@@ -756,9 +833,7 @@ ${proto.content || "- [ ] ステップ1\n- [ ] ステップ2"}
 
 function onProtocolDropdownChange(protocolId) {
   if (!protocolId) return;
-  if (!document.getElementById("markdown-input").value.trim() || confirm("選択したプロトコルのテンプレート内容をノートに展開しますか？")) {
-    applyProtocolTemplate(protocolId);
-  }
+  applyProtocolTemplate(protocolId);
 }
 
 function updatePreview() {
@@ -809,7 +884,7 @@ async function saveExperiment() {
       const res = await fetch("/api/experiments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id, title, date, protocol_id, tags, summary: "", content }),
+        body: JSON.stringify({ project_id, title, date, status, protocol_id, tags, summary: "", content }),
       });
       if (!res.ok) throw new Error("Create failed");
       const created = await res.json();
@@ -874,6 +949,51 @@ async function exportNoteToPdf(projectId, expId) {
 }
 
 // ==========================================
+// Editor Metadata Header Collapse Toggle
+// ==========================================
+
+let isEditorMetaCollapsed = false;
+
+function updateCollapsedMetaSummary() {
+  const projSelect = document.getElementById("input-project");
+  const projName = projSelect && projSelect.selectedIndex >= 0 ? projSelect.options[projSelect.selectedIndex].text : "";
+  const title = document.getElementById("input-title")?.value || "";
+  const status = document.getElementById("input-status")?.value || "in_progress";
+
+  const projEl = document.getElementById("collapsed-project-name");
+  if (projEl) projEl.textContent = `📁 ${projName || "テーマ未選択"}`;
+
+  const titleEl = document.getElementById("collapsed-experiment-title");
+  if (titleEl) titleEl.textContent = title ? `📝 ${title}` : "📝 (タイトル未設定)";
+
+  const badgeEl = document.getElementById("collapsed-status-badge");
+  if (badgeEl) {
+    badgeEl.textContent = status === "completed" ? "✅ 完了" : "⏳ 進行中";
+  }
+}
+
+function toggleEditorMetaCard(forceState) {
+  const card = document.getElementById("editor-header-card");
+  const bar = document.getElementById("editor-meta-collapsed-bar");
+  if (!card || !bar) return;
+
+  if (typeof forceState === "boolean") {
+    isEditorMetaCollapsed = forceState;
+  } else {
+    isEditorMetaCollapsed = !isEditorMetaCollapsed;
+  }
+
+  if (isEditorMetaCollapsed) {
+    updateCollapsedMetaSummary();
+    card.style.display = "none";
+    bar.style.display = "flex";
+  } else {
+    card.style.display = "block";
+    bar.style.display = "none";
+  }
+}
+
+// ==========================================
 // Fullscreen Toggles
 // ==========================================
 
@@ -933,6 +1053,228 @@ function resetFullscreen() {
 // Attachments Handling
 // ==========================================
 
+// ==========================================
+// Attachments Handling, Drag & Drop, and Table Insertion
+// ==========================================
+
+let currentPreviewCsvData = null;
+
+function parseTableTextToMarkdown(text) {
+  if (!text || typeof text !== "string") return null;
+  const lines = text.trim().split(/\r?\n/).filter(line => line.trim().length > 0);
+  if (lines.length < 2) return null; // 少なくともヘッダー+1行は必要
+
+  // タブが含まれているか確認 (Excel/スプレッドシートのコピペ)
+  const hasTab = lines.some(l => l.includes("\t"));
+  let delimiter = ",";
+  if (hasTab) {
+    delimiter = "\t";
+  } else {
+    // タブがなければカンマ区切りチェック
+    const commaCounts = lines.map(l => (l.match(/,/g) || []).length);
+    const avgCommas = commaCounts.reduce((a, b) => a + b, 0) / lines.length;
+    if (avgCommas >= 1 && commaCounts.every(c => Math.abs(c - commaCounts[0]) <= 1)) {
+      delimiter = ",";
+    } else {
+      return null; // 表形式とみなさない
+    }
+  }
+
+  const rows = lines.map(line => {
+    if (delimiter === "\t") {
+      return line.split("\t").map(cell => cell.trim());
+    } else {
+      return line.split(",").map(cell => cell.trim().replace(/^"(.*)"$/, "$1"));
+    }
+  });
+
+  const colCount = Math.max(...rows.map(r => r.length));
+  if (colCount <= 1) return null;
+
+  const header = rows[0];
+  while (header.length < colCount) header.push("");
+  const headerRow = `| ${header.map(c => c || " ").join(" | ")} |`;
+  const sepRow = `| ${header.map(() => "---").join(" | ")} |`;
+  const dataRows = rows.slice(1).map(row => {
+    const r = [...row];
+    while (r.length < colCount) r.push("");
+    return `| ${r.map(c => c || " ").join(" | ")} |`;
+  });
+
+  return [headerRow, sepRow, ...dataRows].join("\n");
+}
+
+function insertTextAtCursor(textarea, text, targetPos = null) {
+  if (!textarea) return;
+  const val = textarea.value;
+  let start = textarea.selectionStart !== undefined ? textarea.selectionStart : val.length;
+  let end = textarea.selectionEnd !== undefined ? textarea.selectionEnd : val.length;
+
+  if (typeof targetPos === "number" && targetPos >= 0) {
+    start = targetPos;
+    end = targetPos;
+  }
+
+  const before = val.substring(0, start);
+  const after = val.substring(end);
+
+  const prefix = (start > 0 && !before.endsWith("\n\n")) ? (before.endsWith("\n") ? "\n" : "\n\n") : "";
+  const suffix = (!after.startsWith("\n\n")) ? (after.startsWith("\n") ? "\n" : "\n\n") : "";
+
+  const insertion = prefix + text.trim() + suffix;
+  textarea.value = before + insertion + after;
+
+  const newPos = start + insertion.length;
+  textarea.selectionStart = newPos;
+  textarea.selectionEnd = newPos;
+  textarea.focus();
+  updatePreview();
+}
+
+function initEditorDragAndPaste(textarea) {
+  if (!textarea) return;
+
+  // ドラッグオーバー
+  textarea.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    textarea.classList.add("drag-over");
+  });
+
+  textarea.addEventListener("dragleave", () => {
+    textarea.classList.remove("drag-over");
+  });
+
+  // ドロップ
+  textarea.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    textarea.classList.remove("drag-over");
+
+    let dropPos = null;
+    if (typeof textarea.selectionStart === "number") {
+      dropPos = textarea.selectionStart;
+    }
+
+    const attJson = e.dataTransfer.getData("application/lab-note-att");
+    if (attJson) {
+      try {
+        const att = JSON.parse(attJson);
+        if (att.is_csv) {
+          await insertCsvAsMarkdownTable(att, textarea, dropPos);
+        } else if (att.is_image) {
+          insertTextAtCursor(textarea, `![${att.filename}](${att.rel_path})`, dropPos);
+          showToast(`図「${att.filename}」を挿入しました`, "info");
+        } else {
+          insertTextAtCursor(textarea, `[📎 ${att.filename}](${att.rel_path})`, dropPos);
+          showToast(`添付リンクを挿入しました`, "info");
+        }
+        return;
+      } catch (err) {
+        console.error("Drop att parse failed", err);
+      }
+    }
+
+    // 通常のプレーンテキストドロップ
+    const text = e.dataTransfer.getData("text/plain");
+    if (text) {
+      insertTextAtCursor(textarea, text, dropPos);
+    }
+  });
+
+  // 案C: Excel/スプレッドシートからの直接コピペ自動Markdown表変換
+  textarea.addEventListener("paste", (e) => {
+    const clipboardData = e.clipboardData || window.clipboardData;
+    if (!clipboardData) return;
+    const text = clipboardData.getData("text/plain");
+    if (!text) return;
+
+    const mdTable = parseTableTextToMarkdown(text);
+    if (mdTable) {
+      e.preventDefault();
+      insertTextAtCursor(textarea, mdTable);
+      showToast("Excelの表をMarkdown表形式に自動変換して挿入しました", "success");
+    }
+  });
+}
+
+function handleAttachmentDragStart(event, attJsonStr) {
+  try {
+    const att = typeof attJsonStr === "string" ? JSON.parse(attJsonStr) : attJsonStr;
+    event.dataTransfer.setData("application/lab-note-att", JSON.stringify(att));
+    
+    // フォールバック用テキスト
+    if (att.is_image) {
+      event.dataTransfer.setData("text/plain", `![${att.filename}](${att.rel_path})`);
+    } else if (att.is_csv) {
+      event.dataTransfer.setData("text/plain", `[📊 ${att.filename}](${att.rel_path})`);
+    } else {
+      event.dataTransfer.setData("text/plain", `[📎 ${att.filename}](${att.rel_path})`);
+    }
+    
+    event.dataTransfer.effectAllowed = "copy";
+    event.target.classList.add("dragging");
+  } catch (e) {
+    console.error("handleAttachmentDragStart error", e);
+  }
+}
+
+function handleAttachmentDragEnd(event) {
+  event.target.classList.remove("dragging");
+}
+
+async function insertAttachmentToEditor(attJsonStr) {
+  try {
+    const att = typeof attJsonStr === "string" ? JSON.parse(attJsonStr) : attJsonStr;
+    const textarea = document.getElementById("markdown-input");
+    if (!textarea) return;
+
+    if (att.is_image) {
+      insertTextAtCursor(textarea, `![${att.filename}](${att.rel_path})`);
+      showToast(`図「${att.filename}」を本文に挿入しました`, "info");
+    } else if (att.is_csv) {
+      await insertCsvAsMarkdownTable(att, textarea);
+    } else {
+      insertTextAtCursor(textarea, `[📎 ${att.filename}](${att.rel_path})`);
+      showToast(`ファイルリンクを本文に挿入しました`, "info");
+    }
+  } catch (e) {
+    console.error("insertAttachmentToEditor error", e);
+  }
+}
+
+async function insertCsvAsMarkdownTable(att, textarea, targetPos = null) {
+  if (!currentEditingProjectId || !currentEditingExpId) return;
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(currentEditingProjectId)}/experiments/${encodeURIComponent(currentEditingExpId)}/preview-csv/${encodeURIComponent(att.filename)}?limit=100`);
+    if (!res.ok) throw new Error("CSVデータの取得に失敗しました");
+    const data = await res.json();
+    
+    if (!data.headers || data.headers.length === 0) {
+      insertTextAtCursor(textarea, `[📊 ${att.filename}](${att.rel_path})`, targetPos);
+      return;
+    }
+
+    const colCount = Math.max(data.headers.length, ...(data.rows || []).map(r => r.length));
+    const header = [...data.headers];
+    while (header.length < colCount) header.push("");
+    
+    const headerRow = `| ${header.map(c => c || " ").join(" | ")} |`;
+    const sepRow = `| ${header.map(() => "---").join(" | ")} |`;
+    const dataRows = (data.rows || []).map(row => {
+      const r = [...row];
+      while (r.length < colCount) r.push("");
+      return `| ${r.map(c => c || " ").join(" | ")} |`;
+    });
+
+    const tableMd = `### 表：${att.filename}\n` + [headerRow, sepRow, ...dataRows].join("\n");
+    insertTextAtCursor(textarea, tableMd, targetPos);
+    showToast(`表「${att.filename}」をMarkdown表として挿入しました`, "success");
+  } catch (e) {
+    insertTextAtCursor(textarea, `[📊 ${att.filename}](${att.rel_path})`, targetPos);
+    showToast("CSV表の挿入エラー: " + e.message, "warning");
+  }
+}
+
 function renderAttachments(attachments) {
   const container = document.getElementById("attachments-list");
   if (!container) return;
@@ -951,17 +1293,27 @@ function renderAttachments(attachments) {
         actionBtn = `<a href="${att.rel_path}" target="_blank" class="btn btn-secondary" style="padding: 1px 5px; font-size: 0.72rem;">拡大</a>`;
       } else if (att.is_csv) {
         icon = "📊";
-        actionBtn = `<button onclick="viewCsvPreview('${att.filename}')" class="btn btn-secondary" style="padding: 1px 5px; font-size: 0.72rem;">表</button>`;
+        actionBtn = `<button type="button" onclick="viewCsvPreview('${att.filename}')" class="btn btn-secondary" style="padding: 1px 5px; font-size: 0.72rem;">表</button>`;
       }
 
+      const safeAttStr = encodeURIComponent(JSON.stringify(att));
+
       return `
-      <div class="attachment-pill">
-        <span>${icon}</span>
+      <div class="attachment-pill" draggable="true" 
+           ondragstart="handleAttachmentDragStart(event, decodeURIComponent('${safeAttStr}'))"
+           ondragend="handleAttachmentDragEnd(event)"
+           title="ドラッグしてMarkdownに挿入できます（画像は図として、CSV/TSVはMarkdown表として挿入）">
+        <span style="font-size: 0.95rem;">${icon}</span>
         <a href="${att.rel_path}" download style="color: var(--text-main); text-decoration: none; font-weight: 500;">
           ${att.filename}
         </a>
         ${actionBtn}
-        <button onclick="deleteAttachment('${att.filename}')" style="background:none; border:none; color: var(--danger); cursor:pointer; font-weight:bold; margin-left: 2px;">&times;</button>
+        <button type="button" class="btn btn-secondary" style="padding: 1px 5px; font-size: 0.72rem;"
+                title="本文のカーソル位置に挿入" 
+                onclick="insertAttachmentToEditor(decodeURIComponent('${safeAttStr}'))">
+          ➕ 挿入
+        </button>
+        <button onclick="deleteAttachment('${att.filename}')" style="background:none; border:none; color: var(--danger); cursor:pointer; font-weight:bold; margin-left: 2px;" title="削除">&times;</button>
       </div>
     `;
     })
@@ -1016,9 +1368,10 @@ async function deleteAttachment(filename) {
 async function viewCsvPreview(filename) {
   if (!currentEditingProjectId || !currentEditingExpId) return;
   try {
-    const res = await fetch(`/api/projects/${encodeURIComponent(currentEditingProjectId)}/experiments/${encodeURIComponent(currentEditingExpId)}/preview-csv/${encodeURIComponent(filename)}`);
+    const res = await fetch(`/api/projects/${encodeURIComponent(currentEditingProjectId)}/experiments/${encodeURIComponent(currentEditingExpId)}/preview-csv/${encodeURIComponent(filename)}?limit=100`);
     if (!res.ok) throw new Error("CSV preview failed");
     const data = await res.json();
+    currentPreviewCsvData = { filename, data };
 
     let tableHtml = '<table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;"><thead><tr>';
     data.headers.forEach((h) => {
@@ -1040,6 +1393,38 @@ async function viewCsvPreview(filename) {
   } catch (e) {
     showToast("CSVプレビュー取得エラー: " + e.message, "error");
   }
+}
+
+function insertCurrentCsvModalToEditor() {
+  if (!currentPreviewCsvData || !currentPreviewCsvData.data) {
+    showToast("挿入可能なCSVデータがありません", "warning");
+    return;
+  }
+  const textarea = document.getElementById("markdown-input");
+  if (!textarea) return;
+
+  const { filename, data } = currentPreviewCsvData;
+  if (!data.headers || data.headers.length === 0) {
+    showToast("表データが空です", "warning");
+    return;
+  }
+
+  const colCount = Math.max(data.headers.length, ...(data.rows || []).map(r => r.length));
+  const header = [...data.headers];
+  while (header.length < colCount) header.push("");
+
+  const headerRow = `| ${header.map(c => c || " ").join(" | ")} |`;
+  const sepRow = `| ${header.map(() => "---").join(" | ")} |`;
+  const dataRows = (data.rows || []).map(row => {
+    const r = [...row];
+    while (r.length < colCount) r.push("");
+    return `| ${r.map(c => c || " ").join(" | ")} |`;
+  });
+
+  const tableMd = `### 表：${filename}\n` + [headerRow, sepRow, ...dataRows].join("\n");
+  insertTextAtCursor(textarea, tableMd);
+  closeModal("csv-modal");
+  showToast(`表「${filename}」をMarkdown表として挿入しました`, "success");
 }
 
 // ==========================================
@@ -1070,10 +1455,11 @@ async function loadProtocols() {
         return `
         <div class="card" oncontextmenu="handleProtocolContextMenu(event, '${proto.id}')">
           <div>
-            <div class="card-top">
-              <div class="card-title">${proto.title}</div>
+            <div class="card-top" style="margin-bottom: 2px;">
+              <span class="protocol-id-badge" style="font-family: monospace; font-size: 0.8rem; font-weight: 700; color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 6px; border-radius: 4px;" title="管理ID: ${proto.id}">🏷️ ${proto.id}</span>
               <span class="sidebar-badge">v${proto.version || "1.0"}</span>
             </div>
+            <div class="card-title" style="margin-top: 4px;">${proto.title}</div>
             <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 8px;">${proto.description || ""}</div>
             <div class="card-tags">${tagsHtml}</div>
           </div>
@@ -1237,9 +1623,74 @@ async function deleteExistingProtoAttachment(savedName) {
   }
 }
 
-function openNewProtocolModal() {
+let protoIdUserEdited = false;
+let protoTitleDebounceTimer = null;
+
+async function autoGenerateProtocolId(titleHint) {
+  const hint = titleHint !== undefined ? titleHint : (document.getElementById("proto-title")?.value || "");
+  try {
+    const res = await fetch(`/api/protocols/generate-id?name=${encodeURIComponent(hint)}`);
+    if (res.ok) {
+      const data = await res.json();
+      const idInput = document.getElementById("proto-id-input");
+      if (idInput) {
+        idInput.value = data.id;
+      }
+      return data.id;
+    }
+  } catch (e) {
+    console.warn("Failed to fetch generated protocol id from server, calculating fallback", e);
+  }
+
+  // クライアント側フォールバック
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const yymmdd = `${yy}${mm}${dd}`;
+  const cleanName = hint.replace(/[^a-zA-Z0-9_-]/g, "").replace(/\s+/g, "_") || "Protocol";
+  let maxNo = 0;
+  (allProtocols || []).forEach(p => {
+    const m = (p.id || "").match(/^(\d+)-/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > maxNo) maxNo = n;
+    }
+  });
+  const nextNo = String(maxNo + 1).padStart(2, "0");
+  const generated = `${nextNo}-${cleanName}-${yymmdd}`;
+  const idInput = document.getElementById("proto-id-input");
+  if (idInput) {
+    idInput.value = generated;
+  }
+  return generated;
+}
+
+function onProtoTitleInput(val) {
+  const editId = document.getElementById("proto-edit-id")?.value.trim();
+  if (editId) return; // 既存編集時は変更しない
+  if (protoIdUserEdited) return; // ユーザーが手動編集した場合は自動更新しない
+
+  clearTimeout(protoTitleDebounceTimer);
+  protoTitleDebounceTimer = setTimeout(() => {
+    autoGenerateProtocolId(val);
+  }, 250);
+}
+
+async function openNewProtocolModal() {
+  protoIdUserEdited = false;
   document.getElementById("proto-modal-title").textContent = "新規プロトコル作成";
   document.getElementById("proto-edit-id").value = "";
+
+  const idInput = document.getElementById("proto-id-input");
+  if (idInput) {
+    idInput.readOnly = false;
+    idInput.disabled = false;
+    idInput.style.backgroundColor = "";
+    idInput.value = "";
+    idInput.oninput = () => { protoIdUserEdited = true; };
+  }
+
   document.getElementById("proto-title").value = "";
   document.getElementById("proto-category").value = "General";
   document.getElementById("proto-version").value = "1.0";
@@ -1251,6 +1702,7 @@ function openNewProtocolModal() {
   currentProtoAttachments = [];
   renderProtoAttachments();
   
+  await autoGenerateProtocolId("");
   document.getElementById("protocol-modal").style.display = "flex";
 }
 
@@ -1262,6 +1714,15 @@ async function editProtocol(protoId) {
 
     document.getElementById("proto-modal-title").textContent = "プロトコルの編集";
     document.getElementById("proto-edit-id").value = proto.id;
+
+    const idInput = document.getElementById("proto-id-input");
+    if (idInput) {
+      idInput.value = proto.id;
+      idInput.readOnly = true;
+      idInput.disabled = true;
+      idInput.style.backgroundColor = "var(--bg-muted, #f1f5f9)";
+    }
+
     document.getElementById("proto-title").value = proto.title || "";
     document.getElementById("proto-category").value = proto.category || "General";
     document.getElementById("proto-version").value = proto.version || "1.0";
@@ -1285,9 +1746,21 @@ async function duplicateProtocol(protoId) {
     if (!res.ok) throw new Error("プロトコルの取得に失敗しました");
     const proto = await res.json();
 
+    protoIdUserEdited = false;
     document.getElementById("proto-modal-title").textContent = "新規プロトコル作成 (複製)";
     document.getElementById("proto-edit-id").value = ""; // Clear to treat as new
-    document.getElementById("proto-title").value = `${proto.title} (コピー)`;
+
+    const idInput = document.getElementById("proto-id-input");
+    if (idInput) {
+      idInput.readOnly = false;
+      idInput.disabled = false;
+      idInput.style.backgroundColor = "";
+      idInput.value = "";
+      idInput.oninput = () => { protoIdUserEdited = true; };
+    }
+
+    const copyTitle = `${proto.title} (コピー)`;
+    document.getElementById("proto-title").value = copyTitle;
     document.getElementById("proto-category").value = proto.category || "General";
     document.getElementById("proto-version").value = proto.version || "1.0";
     document.getElementById("proto-description").value = proto.description || "";
@@ -1298,6 +1771,7 @@ async function duplicateProtocol(protoId) {
     currentProtoAttachments = [];
     renderProtoAttachments();
 
+    await autoGenerateProtocolId(copyTitle);
     document.getElementById("protocol-modal").style.display = "flex";
   } catch (e) {
     showToast("エラー: " + e.message, "error");
@@ -1324,6 +1798,9 @@ async function saveProtocolFromModal() {
     return;
   }
   const editId = document.getElementById("proto-edit-id").value.trim();
+  const idInput = document.getElementById("proto-id-input");
+  const customId = idInput ? idInput.value.trim() : "";
+
   const category = document.getElementById("proto-category").value.trim() || "General";
   const version = document.getElementById("proto-version").value.trim() || "1.0";
   const description = document.getElementById("proto-description").value.trim();
@@ -1340,6 +1817,8 @@ async function saveProtocolFromModal() {
   };
   if (editId) {
     payload.id = editId; // Update existing
+  } else if (customId) {
+    payload.id = customId; // Custom/generated ID for new
   }
 
   try {

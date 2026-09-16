@@ -58,6 +58,7 @@ class ExperimentCreateRequest(BaseModel):
     tags: List[str] = []
     summary: str = ""
     content: Optional[str] = None
+    status: str = "in_progress"
 
 class ExperimentUpdateRequest(BaseModel):
     title: str
@@ -124,6 +125,10 @@ async def get_projects():
 async def get_protocols():
     return storage.list_protocols()
 
+@app.get("/api/protocols/generate-id")
+async def get_generated_protocol_id(name: str = ""):
+    return {"id": storage.generate_protocol_id(name)}
+
 @app.get("/api/protocols/{protocol_id}")
 async def get_single_protocol(protocol_id: str):
     proto = storage.get_protocol(protocol_id)
@@ -135,10 +140,7 @@ async def get_single_protocol(protocol_id: str):
 async def create_or_update_protocol(req: ProtocolCreateRequest):
     proto_id = req.id
     if not proto_id:
-        # Auto-generate ID from title
-        clean_title = re.sub(r'[\\/*?:"<>|]', "", req.title).strip().replace(" ", "_")
-        time_slug = datetime.now().strftime("%Y%m%d_%H%M%S")
-        proto_id = f"{clean_title}_{time_slug}" if clean_title else f"proto_{time_slug}"
+        proto_id = storage.generate_protocol_id(req.title)
 
     result = storage.save_protocol(
         protocol_id=proto_id,
@@ -214,7 +216,8 @@ async def create_experiment(req: ExperimentCreateRequest):
         author=req.author,
         tags=req.tags,
         summary=req.summary,
-        initial_content=req.content
+        initial_content=req.content,
+        status=req.status
     )
     return result
 
@@ -262,7 +265,10 @@ async def upload_attachment(project_id: str, experiment_id: str, file: UploadFil
 
 @app.get("/api/projects/{project_id}/experiments/{experiment_id}/files/{filename}")
 async def get_attachment_file(project_id: str, experiment_id: str, filename: str):
-    target_path = config.PROJECTS_DIR / project_id / "experiments" / experiment_id / filename
+    exp_dir = storage._find_experiment_dir(project_id, experiment_id)
+    if not exp_dir or not exp_dir.exists():
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    target_path = exp_dir / filename
     if not target_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(str(target_path))
@@ -275,22 +281,28 @@ async def delete_attachment_file(project_id: str, experiment_id: str, filename: 
     return {"message": "File deleted"}
 
 @app.get("/api/projects/{project_id}/experiments/{experiment_id}/preview-csv/{filename}")
-async def preview_csv(project_id: str, experiment_id: str, filename: str, limit: int = 50):
-    target_path = config.PROJECTS_DIR / project_id / "experiments" / experiment_id / filename
+async def preview_csv(project_id: str, experiment_id: str, filename: str, limit: int = 100):
+    exp_dir = storage._find_experiment_dir(project_id, experiment_id)
+    if not exp_dir or not exp_dir.exists():
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    target_path = exp_dir / filename
     if not target_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     
     try:
         rows = []
         with open(target_path, "r", encoding="utf-8", errors="replace") as f:
-            reader = csv.reader(f)
+            sample = f.read(4096)
+            f.seek(0)
+            delimiter = "\t" if "\t" in sample and sample.count("\t") > sample.count(",") else ","
+            reader = csv.reader(f, delimiter=delimiter)
             for i, row in enumerate(reader):
                 if i >= limit:
                     break
-                rows.append(row)
-        return {"headers": rows[0] if rows else [], "rows": rows[1:] if len(rows) > 1 else []}
+                rows.append([cell.strip() for cell in row])
+        return {"headers": rows[0] if rows else [], "rows": rows[1:] if len(rows) > 1 else [], "delimiter": delimiter}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse CSV: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to parse CSV/TSV: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

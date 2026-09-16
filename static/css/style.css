@@ -122,42 +122,43 @@ body {
  * Project Tree View with Visible Scrollbar
  * ========================================== */
 .project-tree-container {
-  flex: 1 1 0;
+  height: 0;
+  flex: 1 1 auto;
   min-height: 0;
-  max-height: 100%;
-  overflow-y: auto;
+  overflow-y: scroll;
   overflow-x: hidden;
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
-  scrollbar-color: #475569 #0f172a;
-  padding: 2px 4px 16px 8px;
+  padding: 4px 6px 32px 8px;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
+/* 常に表示されるスリムで洗練された細身スクロールバー (幅 6px) */
 .project-tree-container::-webkit-scrollbar {
   width: 6px;
 }
 
 .project-tree-container::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: rgba(15, 23, 42, 0.7);
   border-radius: 3px;
 }
 
 .project-tree-container::-webkit-scrollbar-thumb {
-  background: #475569;
+  background: #64748b;
   border-radius: 3px;
 }
 
 .project-tree-container::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: #94a3b8;
 }
 
 .project-node {
   border-radius: var(--radius);
   overflow: hidden;
   margin-bottom: 2px;
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .project-node-header {
@@ -171,6 +172,9 @@ body {
   font-size: 0.84rem;
   font-weight: 600;
   transition: background 0.15s;
+  width: 100%;
+  box-sizing: border-box;
+  gap: 6px;
 }
 
 .project-node-header:hover {
@@ -187,9 +191,18 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.project-node-left span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .project-toggle-icon {
@@ -208,6 +221,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .btn-icon-mini {
@@ -227,12 +241,82 @@ body {
 }
 
 .project-experiments-list {
-  padding-left: 18px;
+  padding-left: 6px;
+  padding-right: 2px;
   display: flex;
   flex-direction: column;
   gap: 2px;
   margin-top: 2px;
   margin-bottom: 4px;
+}
+
+/* Tree Subgroups (進行中 / 完了) */
+.tree-subgroup {
+  margin-left: 8px;
+  margin-top: 2px;
+  margin-bottom: 3px;
+}
+
+.tree-subgroup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+  margin-bottom: 2px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tree-subgroup-header:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+.tree-subgroup-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tree-subgroup-toggle {
+  font-size: 0.65rem;
+  width: 10px;
+  display: inline-block;
+  color: #64748b;
+  transition: transform 0.2s;
+}
+
+.tree-subgroup-toggle.expanded {
+  transform: rotate(90deg);
+}
+
+.tree-subgroup-items {
+  padding-left: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tree-empty-hint {
+  padding: 2px 6px;
+  font-size: 0.72rem;
+  color: #64748b;
+  font-style: italic;
+}
+
+.sidebar-badge-mini {
+  font-size: 0.65rem;
+  background-color: #334155;
+  padding: 0 5px;
+  border-radius: 4px;
+  color: #cbd5e1;
 }
 
 .experiment-tree-item {
@@ -249,6 +333,17 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.experiment-tree-item span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .experiment-tree-item:hover {
@@ -696,6 +791,67 @@ body {
   border-radius: 4px;
   font-family: monospace;
 }
+.preview-content img {
+  max-width: min(100%, 480px);
+  max-height: 400px;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  margin: 10px 0;
+  display: block;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Editor Header Collapsible Bar */
+.editor-header-card-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.btn-toggle-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #f1f5f9;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-toggle-meta:hover {
+  background: #e2e8f0;
+  color: var(--text-main);
+  border-color: #94a3b8;
+}
+
+.editor-meta-collapsed-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+
+.editor-meta-summary-text {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .attachments-bar {
   background: var(--bg-card);
@@ -725,6 +881,32 @@ body {
   padding: 3px 8px;
   border-radius: 4px;
   font-size: 0.78rem;
+  cursor: grab;
+  user-select: none;
+  transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.attachment-pill:hover {
+  background-color: #e2e8f0;
+  border-color: #94a3b8;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.attachment-pill:active {
+  cursor: grabbing;
+}
+
+.attachment-pill.dragging {
+  opacity: 0.45;
+  border-style: dashed;
+  border-color: var(--primary);
+}
+
+.editor-textarea.drag-over {
+  border-color: var(--primary) !important;
+  background-color: #eff6ff !important;
+  outline: 2px dashed var(--primary) !important;
+  outline-offset: -2px;
 }
 
 /* Context Menu */
@@ -1009,7 +1191,12 @@ body {
   }
 
   .preview-content img {
-    max-width: 100% !important;
-    page-break-inside: avoid;
+    max-width: 120mm !important;
+    max-height: 100mm !important;
+    height: auto !important;
+    object-fit: contain !important;
+    page-break-inside: avoid !important;
+    display: block !important;
+    margin: 8px 0 !important;
   }
 }
