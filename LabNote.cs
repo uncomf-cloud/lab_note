@@ -128,6 +128,13 @@ namespace LabNote
             try
             {
                 // 1. デスクトップ
+                string markerPath = Path.Combine(baseDir, ".shortcut_created");
+                if (File.Exists(markerPath))
+                {
+                    return;
+                }
+
+                // 1. デスクトップ (初回起動時のみ作成)
                 string desktopDir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
                 if (Directory.Exists(desktopDir))
                 {
@@ -142,6 +149,9 @@ namespace LabNote
                     string lnkPath = Path.Combine(programsDir, AppName + ".lnk");
                     CreateShortcut(lnkPath, exePath, baseDir, "電子実験ノート - 研究プロトコル・実験記録システム");
                 }
+
+                // 初回ショートカット作成完了マーカーを保存
+                File.WriteAllText(markerPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
             }
             catch
             {

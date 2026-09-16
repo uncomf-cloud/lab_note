@@ -5,3 +5,4 @@ __pycache__/
 .DS_Store
 *.log
 .edge_profile/
+.shortcut_created
