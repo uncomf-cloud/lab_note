@@ -767,17 +767,24 @@ body {
   margin-bottom: 0.8em;
 }
 .preview-content table {
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   border-collapse: collapse;
-  margin-bottom: 0.8em;
+  margin: 0.8em 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 .preview-content th, .preview-content td {
   border: 1px solid var(--border);
-  padding: 6px 10px;
+  padding: 5px 10px;
   text-align: left;
+  vertical-align: top;
 }
 .preview-content th {
   background-color: #f8fafc;
+  font-weight: 600;
+  color: var(--text-main);
 }
 .preview-content blockquote {
   border-left: 4px solid var(--primary);
@@ -863,6 +870,13 @@ body {
   justify-content: space-between;
   gap: 12px;
   flex-shrink: 0;
+  transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+}
+
+.attachments-bar.drag-over {
+  border: 2px dashed var(--primary);
+  background-color: #eff6ff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
 .attachments-list {
@@ -1187,7 +1201,17 @@ body {
   }
 
   .preview-content table {
+    width: auto !important;
+    max-width: 100% !important;
+    font-size: 9.5pt !important;
+    line-height: 1.4 !important;
     page-break-inside: avoid;
+    margin: 8px 0 !important;
+  }
+
+  .preview-content th,
+  .preview-content td {
+    padding: 4px 8px !important;
   }
 
   .preview-content img {
@@ -1391,28 +1415,38 @@ body {
   background-color: #f8faff;
 }
 
-.card-select-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 2px solid #cbd5e1;
-  background: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.75rem;
-  color: transparent;
-  pointer-events: none;
-  transition: all 0.15s ease;
+/* Keyboard Shortcuts Modal Styling */
+.shortcuts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
 }
 
-.card.card-selected .card-select-badge {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: #ffffff;
-  font-weight: 700;
+.shortcuts-table th,
+.shortcuts-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
 }
+
+.shortcuts-table th {
+  font-weight: 600;
+  color: var(--text-muted);
+  background-color: #f8fafc;
+}
+
+.shortcuts-table td kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1e293b;
+  background-color: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+}
+
 

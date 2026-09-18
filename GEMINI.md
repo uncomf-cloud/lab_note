@@ -15,8 +15,11 @@
   - UIやAPIでのステータス変更時、フォルダが自動的に移動。レガシー構造からの自動マイグレーション機能（`migrate_experiments_to_status_dirs`）を搭載。
 - **プロトコルIDの標準化**:
   - `<連番2桁>-<名称>-<yymmdd>` 形式（例: `01-PCR-260916`）でプロトコルIDを自動生成・採番。
-- **添付ファイル管理**: 各実験ノートフォルダ内に測定データ（CSV、Excel、画像等）を保存・連携可能。
+- **添付ファイル管理 & 画像プレビュー自動解決**:
+  - 各実験ノートフォルダ内に測定データ（CSV、Excel、画像等）を保存・連携可能。
+  - サブエージェントやユーザーが `![タイトル](filename.png)` や `![タイトル](./filename.png)` のように相対パスで記述した画像は、プレビュー表示時にフロントエンドで `/api/projects/{project_id}/experiments/{experiment_id}/files/{filename}` へ自動解決・リライトされる。
 - **AI・Antigravity連携**: `mcp_server.py` による MCP (Model Context Protocol) ツール群の提供（AIエージェントからのノート自動作成・参照・更新）。
+  - サブエージェントが画像を作成した際は、必ず該当の実験ノートフォルダ直下（`experiments/{status}/{experiment_id}/`）に配置し、Markdown 本文には相対パス（`![解析図](image.png)`）で記述する。
 
 ---
 

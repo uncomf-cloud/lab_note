@@ -62,6 +62,7 @@ let allExperiments = [];
 let allProtocols = [];
 let currentSelectedProjectId = null;
 let selectedTag = null;
+let selectedStatusFilter = null;
 let expandedProjects = new Set();
 
 // Protocol selection states (Left-click multi-select & editor multi-select)
@@ -88,9 +89,11 @@ document.addEventListener("DOMContentLoaded", () => {
   initApp();
   initResizer();
   initContextMenu();
+  initKeyboardShortcuts();
 });
 
 async function initApp() {
+  initMarkedRenderer();
   await refreshProjectsAndTree();
   await loadProtocols();
 
@@ -113,6 +116,19 @@ async function initApp() {
   if (inputProject) inputProject.addEventListener("change", updateCollapsedMetaSummary);
   const inputStatus = document.getElementById("input-status");
   if (inputStatus) inputStatus.addEventListener("change", updateCollapsedMetaSummary);
+
+  initAttachmentsBarDragAndDrop();
+
+  const protoMarkdownInput = document.getElementById("proto-markdown-input");
+  if (protoMarkdownInput) {
+    protoMarkdownInput.addEventListener("input", updateProtoPreview);
+    initEditorDragAndPaste(protoMarkdownInput);
+  }
+
+  const protoEditTitle = document.getElementById("proto-edit-title");
+  if (protoEditTitle) protoEditTitle.addEventListener("input", updateCollapsedProtoSummary);
+  const protoEditCategory = document.getElementById("proto-edit-category");
+  if (protoEditCategory) protoEditCategory.addEventListener("input", updateCollapsedProtoSummary);
 }
 
 // ==========================================
@@ -237,55 +253,91 @@ function showView(viewName) {
   const expView = document.getElementById("view-experiments");
   const editView = document.getElementById("view-editor");
   const protoView = document.getElementById("view-protocols");
+  const protoEditView = document.getElementById("view-protocol-editor");
 
   const searchBox = document.getElementById("global-search-box");
   const editorNavBack = document.getElementById("editor-nav-back");
+  const protoEditorNavBack = document.getElementById("proto-editor-nav-back");
   const actionsDashboard = document.getElementById("actions-dashboard");
   const actionsEditor = document.getElementById("actions-editor");
+  const actionsProtoEditor = document.getElementById("actions-proto-editor");
 
   resetFullscreen();
+  resetProtoFullscreen();
 
   if (viewName === "editor") {
     if (expView) expView.style.display = "none";
     if (protoView) protoView.style.display = "none";
+    if (protoEditView) protoEditView.style.display = "none";
     if (editView) editView.style.display = "flex";
 
     if (searchBox) searchBox.style.display = "none";
     if (editorNavBack) editorNavBack.style.display = "flex";
+    if (protoEditorNavBack) protoEditorNavBack.style.display = "none";
     if (actionsDashboard) actionsDashboard.style.display = "none";
     if (actionsEditor) actionsEditor.style.display = "flex";
-  } else if (viewName === "protocols") {
+    if (actionsProtoEditor) actionsProtoEditor.style.display = "none";
+  } else if (viewName === "protocol-editor") {
     if (expView) expView.style.display = "none";
     if (editView) editView.style.display = "none";
-    if (protoView) protoView.style.display = "block";
+    if (protoView) protoView.style.display = "none";
+    if (protoEditView) protoEditView.style.display = "flex";
 
-    if (searchBox) searchBox.style.display = "flex";
+    if (searchBox) searchBox.style.display = "none";
     if (editorNavBack) editorNavBack.style.display = "none";
-    if (actionsDashboard) actionsDashboard.style.display = "flex";
+    if (protoEditorNavBack) protoEditorNavBack.style.display = "flex";
+    if (actionsDashboard) actionsDashboard.style.display = "none";
     if (actionsEditor) actionsEditor.style.display = "none";
+    if (actionsProtoEditor) actionsProtoEditor.style.display = "flex";
 
     document.querySelectorAll(".menu-item").forEach((el) => el.classList.remove("active"));
     const protoMenu = document.getElementById("menu-protocols");
     if (protoMenu) protoMenu.classList.add("active");
+  } else if (viewName === "protocols") {
+    if (expView) expView.style.display = "none";
+    if (editView) editView.style.display = "none";
+    if (protoEditView) protoEditView.style.display = "none";
+    if (protoView) protoView.style.display = "block";
+
+    if (searchBox) searchBox.style.display = "flex";
+    if (editorNavBack) editorNavBack.style.display = "none";
+    if (protoEditorNavBack) protoEditorNavBack.style.display = "none";
+    if (actionsDashboard) actionsDashboard.style.display = "flex";
+    if (actionsEditor) actionsEditor.style.display = "none";
+    if (actionsProtoEditor) actionsProtoEditor.style.display = "none";
+
+    document.querySelectorAll(".menu-item").forEach((el) => el.classList.remove("active"));
+    const protoMenu = document.getElementById("menu-protocols");
+    if (protoMenu) protoMenu.classList.add("active");
+    document.title = "電子実験ノート";
   } else {
     if (expView) expView.style.display = "block";
     if (editView) editView.style.display = "none";
+    if (protoEditView) protoEditView.style.display = "none";
     if (protoView) protoView.style.display = "none";
 
     if (searchBox) searchBox.style.display = "flex";
     if (editorNavBack) editorNavBack.style.display = "none";
+    if (protoEditorNavBack) protoEditorNavBack.style.display = "none";
     if (actionsDashboard) actionsDashboard.style.display = "flex";
     if (actionsEditor) actionsEditor.style.display = "none";
+    if (actionsProtoEditor) actionsProtoEditor.style.display = "none";
 
     document.querySelectorAll(".menu-item").forEach((el) => el.classList.remove("active"));
     const expMenu = document.getElementById("menu-experiments");
     if (expMenu) expMenu.classList.add("active");
+    document.title = "電子実験ノート";
   }
 }
 
 function backToExperimentList() {
   showView("experiments");
   filterAndRenderExperiments();
+}
+
+function backToProtocolList() {
+  showView("protocols");
+  loadProtocols();
 }
 
 function switchTab(tabName) {
@@ -553,6 +605,7 @@ function selectProject(projectId) {
     renderProjectsTree();
   }
   
+  renderTagFilters();
   showView("experiments");
   filterAndRenderExperiments();
 }
@@ -560,6 +613,7 @@ function selectProject(projectId) {
 function viewAllProjects() {
   currentSelectedProjectId = null;
   renderProjectsTree();
+  renderTagFilters();
   showView("experiments");
   filterAndRenderExperiments();
 }
@@ -580,15 +634,44 @@ function renderTagFilters() {
     (exp.tags || []).forEach((t) => tags.add(t));
   });
 
-  let html = `<div class="filter-chip ${selectedTag === null ? "active" : ""}" onclick="selectTag(null)">すべて</div>`;
+  const isAllActive = selectedStatusFilter === null && selectedTag === null;
+  const isInProgressActive = selectedStatusFilter === "in_progress";
+
+  let html = `
+    <div class="filter-chip ${isAllActive ? "active" : ""}" onclick="clearFilters()">すべて</div>
+    <div class="filter-chip ${isInProgressActive ? "active" : ""}" onclick="toggleStatusFilter('in_progress')">進行中</div>
+  `;
   tags.forEach((tag) => {
     html += `<div class="filter-chip ${selectedTag === tag ? "active" : ""}" onclick="selectTag('${tag}')">#${tag}</div>`;
   });
   container.innerHTML = html;
 }
 
+function clearFilters() {
+  selectedStatusFilter = null;
+  selectedTag = null;
+  renderTagFilters();
+  const searchInput = document.getElementById("search-input");
+  filterAndRenderExperiments(searchInput ? searchInput.value : "");
+}
+
+function toggleStatusFilter(status) {
+  if (selectedStatusFilter === status) {
+    selectedStatusFilter = null;
+  } else {
+    selectedStatusFilter = status;
+  }
+  renderTagFilters();
+  const searchInput = document.getElementById("search-input");
+  filterAndRenderExperiments(searchInput ? searchInput.value : "");
+}
+
 function selectTag(tag) {
-  selectedTag = tag;
+  if (selectedTag === tag) {
+    selectedTag = null;
+  } else {
+    selectedTag = tag;
+  }
   renderTagFilters();
   const searchInput = document.getElementById("search-input");
   filterAndRenderExperiments(searchInput ? searchInput.value : "");
@@ -617,13 +700,15 @@ function filterAndRenderExperiments(query = "") {
     if (!isVisibleProj) return false;
 
     const matchesProject = !currentSelectedProjectId || exp.project_id === currentSelectedProjectId;
+    const expStatus = exp.status || "in_progress";
+    const matchesStatus = !selectedStatusFilter || expStatus === selectedStatusFilter;
     const matchesTag = !selectedTag || (exp.tags && exp.tags.includes(selectedTag));
     const matchesQuery =
       !q ||
       exp.title.toLowerCase().includes(q) ||
       (exp.tags && exp.tags.some((t) => t.toLowerCase().includes(q))) ||
       (exp.project_id && exp.project_id.toLowerCase().includes(q));
-    return matchesProject && matchesTag && matchesQuery;
+    return matchesProject && matchesStatus && matchesTag && matchesQuery;
   });
 
   // 進行中 > 完了 が第1優先、その次に実施日の早い順（昇順）、ノート名（タイトル）昇順
@@ -1002,6 +1087,82 @@ function onProtocolDropdownChange(protocolId) {
   applyProtocolTemplate(protocolId);
 }
 
+// ==========================================
+// Markdown Image & Attachment URL Resolver
+// ==========================================
+
+function resolveExperimentFileUrl(url, projectId, expId) {
+  if (!url || typeof url !== "string") return url;
+  const trimmed = url.trim();
+
+  // 外部URL、data URI、アンカー、既にAPIパスの場合はそのまま
+  if (/^(https?:|\/\/|data:|#|\/api\/)/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  // 編集中のプロジェクトまたは実験IDが未設定の場合は変換不可
+  if (!projectId || !expId) {
+    return trimmed;
+  }
+
+  // Windowsパス (C:\...) や file:/// スキームを正規化
+  let cleanPath = trimmed.replace(/^file:\/\/\/?/i, "");
+  cleanPath = cleanPath.replace(/\\/g, "/");
+
+  // クエリやハッシュを除いたファイル名部分を抽出
+  const pathWithoutQuery = cleanPath.split("?")[0].split("#")[0];
+  const filename = pathWithoutQuery.split("/").pop();
+  if (!filename) return trimmed;
+
+  return `/api/projects/${encodeURIComponent(projectId)}/experiments/${encodeURIComponent(expId)}/files/${encodeURIComponent(filename)}`;
+}
+
+function initMarkedRenderer() {
+  if (typeof marked === "undefined") return;
+
+  const customRenderer = {
+    image(tokenOrHref, title, text) {
+      let href = "", imgTitle = "", altText = "";
+      if (typeof tokenOrHref === "object" && tokenOrHref !== null) {
+        href = tokenOrHref.href || "";
+        imgTitle = tokenOrHref.title || "";
+        altText = tokenOrHref.text || "";
+      } else {
+        href = tokenOrHref || "";
+        imgTitle = title || "";
+        altText = text || "";
+      }
+
+      const resolvedHref = resolveExperimentFileUrl(href, currentEditingProjectId, currentEditingExpId);
+      const titleAttr = imgTitle ? ` title="${escapeHtml(imgTitle)}"` : "";
+      const altAttr = altText ? ` alt="${escapeHtml(altText)}"` : "";
+      return `<img src="${escapeHtml(resolvedHref)}"${altAttr}${titleAttr} class="preview-embedded-img" loading="lazy">`;
+    },
+    link(tokenOrHref, title, text) {
+      let href = "", linkTitle = "", linkText = "";
+      if (typeof tokenOrHref === "object" && tokenOrHref !== null) {
+        href = tokenOrHref.href || "";
+        linkTitle = tokenOrHref.title || "";
+        linkText = tokenOrHref.text || "";
+      } else {
+        href = tokenOrHref || "";
+        linkTitle = title || "";
+        linkText = text || "";
+      }
+
+      const resolvedHref = resolveExperimentFileUrl(href, currentEditingProjectId, currentEditingExpId);
+      const titleAttr = linkTitle ? ` title="${escapeHtml(linkTitle)}"` : "";
+      return `<a href="${escapeHtml(resolvedHref)}"${titleAttr} target="_blank" rel="noopener noreferrer">${linkText}</a>`;
+    }
+  };
+
+  try {
+    marked.use({ renderer: customRenderer });
+  } catch (e) {
+    console.warn("marked.use renderer setup warning", e);
+  }
+}
+
 function updatePreview() {
   const markdownText = document.getElementById("markdown-input").value;
   const previewContainer = document.getElementById("markdown-preview");
@@ -1009,9 +1170,42 @@ function updatePreview() {
 
   if (typeof marked !== "undefined") {
     previewContainer.innerHTML = marked.parse(markdownText);
-    previewContainer.querySelectorAll("a").forEach(a => {
+
+    // 画像URLのフォールバック補正（HTML直書き <img> や動的パスの完全カバー）
+    previewContainer.querySelectorAll("img").forEach((img) => {
+      const originalSrc = img.getAttribute("src");
+      if (originalSrc) {
+        const resolvedSrc = resolveExperimentFileUrl(originalSrc, currentEditingProjectId, currentEditingExpId);
+        if (resolvedSrc && resolvedSrc !== originalSrc) {
+          img.setAttribute("src", resolvedSrc);
+        }
+      }
+      img.onerror = () => {
+        img.onerror = null;
+        img.classList.add("img-load-error");
+        img.style.display = "inline-block";
+        img.style.padding = "6px 10px";
+        img.style.background = "#fef2f2";
+        img.style.border = "1px dashed #f87171";
+        img.style.borderRadius = "4px";
+        img.style.color = "#991b1b";
+        img.style.fontSize = "0.78rem";
+        img.alt = `⚠️ 画像を読み込めませんでした (${originalSrc || "不明"})`;
+      };
+    });
+
+    // リンク属性と相対ファイルリンクの解決
+    previewContainer.querySelectorAll("a").forEach((a) => {
       a.setAttribute("target", "_blank");
       a.setAttribute("rel", "noopener noreferrer");
+
+      const originalHref = a.getAttribute("href");
+      if (originalHref) {
+        const resolvedHref = resolveExperimentFileUrl(originalHref, currentEditingProjectId, currentEditingExpId);
+        if (resolvedHref && resolvedHref !== originalHref) {
+          a.setAttribute("href", resolvedHref);
+        }
+      }
     });
   } else {
     previewContainer.textContent = markdownText;
@@ -1103,19 +1297,65 @@ async function deleteExperimentDirect(projectId, expId) {
   }
 }
 
-// PDF Export
+// ==========================================
+// PDF Export with Dynamic Note Title
+// ==========================================
+
+function getNotePdfFileName() {
+  const titleInput = document.getElementById("input-title");
+  const dateInput = document.getElementById("input-date");
+  const rawTitle = titleInput ? titleInput.value.trim() : "";
+  const rawDate = dateInput ? dateInput.value.trim() : "";
+
+  let baseName = "";
+  if (rawDate && rawTitle) {
+    if (rawTitle.startsWith(rawDate)) {
+      baseName = rawTitle;
+    } else {
+      baseName = `${rawDate}_${rawTitle}`;
+    }
+  } else if (rawTitle) {
+    baseName = rawTitle;
+  } else if (currentEditingExpId) {
+    baseName = currentEditingExpId;
+  } else {
+    baseName = "実験ノート";
+  }
+
+  // OSファイル名として使用できない文字 (\ / : * ? " < > |) をサニタイズ
+  return baseName.replace(/[\\/*?:"<>|]/g, "_").trim() || "実験ノート";
+}
+
 function exportCurrentNoteToPdf() {
+  const originalTitle = document.title;
+  const fileName = getNotePdfFileName();
+
+  // PDF保存時のデフォルトファイル名として使用されるため一時的に変更
+  document.title = fileName;
+
+  let restored = false;
+  const restoreTitle = () => {
+    if (restored) return;
+    restored = true;
+    document.title = originalTitle;
+    window.removeEventListener("afterprint", restoreTitle);
+  };
+
+  window.addEventListener("afterprint", restoreTitle);
   window.print();
+
+  // afterprint が発火しない環境向けの安全策
+  setTimeout(restoreTitle, 2500);
 }
 
 async function exportNoteToPdf(projectId, expId) {
   if (currentEditingProjectId !== projectId || currentEditingExpId !== expId) {
     await openEditorForExperiment(projectId, expId);
     setTimeout(() => {
-      window.print();
-    }, 300);
+      exportCurrentNoteToPdf();
+    }, 400);
   } else {
-    window.print();
+    exportCurrentNoteToPdf();
   }
 }
 
@@ -1140,6 +1380,13 @@ function updateCollapsedMetaSummary() {
   const badgeEl = document.getElementById("collapsed-status-badge");
   if (badgeEl) {
     badgeEl.textContent = status === "completed" ? "✅ 完了" : "⏳ 進行中";
+  }
+
+  // エディタ表示中のブラウザタブタイトルを連動
+  if (title) {
+    document.title = `${title} - 電子実験ノート`;
+  } else {
+    document.title = "新規実験ノート - 電子実験ノート";
   }
 }
 
@@ -1230,80 +1477,259 @@ function resetFullscreen() {
 
 let currentPreviewCsvData = null;
 
-function parseTableTextToMarkdown(text) {
-  if (!text || typeof text !== "string") return null;
-  const lines = text.trim().split(/\r?\n/).filter(line => line.trim().length > 0);
-  if (lines.length < 2) return null; // 少なくともヘッダー+1行は必要
+function formatMarkdownTableCell(val) {
+  if (val === null || val === undefined) return " ";
+  let str = String(val).trim();
+  // セル内改行を Markdown 表用 <br> に変換
+  str = str.replace(/\r?\n/g, "<br>");
+  // パイプ文字 | を \| にエスケープ
+  str = str.replace(/\|/g, "\\|");
+  return str || " ";
+}
 
-  // タブが含まれているか確認 (Excel/スプレッドシートのコピペ)
-  const hasTab = lines.some(l => l.includes("\t"));
-  let delimiter = ",";
-  if (hasTab) {
-    delimiter = "\t";
-  } else {
-    // タブがなければカンマ区切りチェック
-    const commaCounts = lines.map(l => (l.match(/,/g) || []).length);
-    const avgCommas = commaCounts.reduce((a, b) => a + b, 0) / lines.length;
-    if (avgCommas >= 1 && commaCounts.every(c => Math.abs(c - commaCounts[0]) <= 1)) {
-      delimiter = ",";
+/**
+ * HTML文字列（Excel, Google Sheets, Webページのコピペ）からMarkdown表に変換
+ */
+function parseHtmlTableToMarkdown(html) {
+  if (!html || typeof html !== "string") return null;
+  if (!/<table[\s>]/i.test(html)) return null;
+
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+    const table = doc.querySelector("table");
+    if (!table) return null;
+
+    const trElements = Array.from(table.querySelectorAll("tr"));
+    if (trElements.length === 0) return null;
+
+    const rows = [];
+    for (const tr of trElements) {
+      const cells = [];
+      const tdElements = Array.from(tr.querySelectorAll("th, td"));
+      if (tdElements.length === 0) continue;
+
+      for (const td of tdElements) {
+        // セル内の <br> や段落ブロックを改行コードに変換
+        const clonedTd = td.cloneNode(true);
+        clonedTd.querySelectorAll("br").forEach(br => br.replaceWith("\n"));
+        clonedTd.querySelectorAll("p, div, li").forEach(block => {
+          block.insertAdjacentText("afterend", "\n");
+        });
+
+        const rawText = clonedTd.textContent || "";
+        const formatted = formatMarkdownTableCell(rawText);
+
+        const colspan = parseInt(td.getAttribute("colspan") || "1", 10);
+        cells.push(formatted);
+        // colspan が 2 以上の場合は空セルで補填して列のズレを防ぐ
+        for (let i = 1; i < colspan; i++) {
+          cells.push(" ");
+        }
+      }
+      if (cells.length > 0) {
+        rows.push(cells);
+      }
+    }
+
+    if (rows.length === 0) return null;
+
+    // 最大列数を計算
+    const maxCols = Math.max(...rows.map(r => r.length));
+    if (maxCols <= 1) return null; // 1セルのみは通常のテキスト貼り付けに任せる
+
+    // すべての行の列数を揃える
+    rows.forEach(r => {
+      while (r.length < maxCols) {
+        r.push(" ");
+      }
+    });
+
+    const headerRow = `| ${rows[0].join(" | ")} |`;
+    const sepRow = `| ${rows[0].map(() => "---").join(" | ")} |`;
+    const bodyRows = rows.slice(1).map(row => `| ${row.join(" | ")} |`);
+
+    return [headerRow, sepRow, ...bodyRows].join("\n");
+  } catch (e) {
+    console.warn("parseHtmlTableToMarkdown error", e);
+    return null;
+  }
+}
+
+/**
+ * クォート対応 TSV / CSV パーサー（セル内改行、引用符のエスケープに対応）
+ */
+function parseDelimitedText(text, delimiter) {
+  const rows = [];
+  let currentRow = [];
+  let currentCell = "";
+  let insideQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i + 1];
+
+    if (char === '"') {
+      if (insideQuotes && nextChar === '"') {
+        currentCell += '"';
+        i++;
+      } else {
+        insideQuotes = !insideQuotes;
+      }
+    } else if (char === delimiter && !insideQuotes) {
+      currentRow.push(currentCell);
+      currentCell = "";
+    } else if ((char === '\r' || char === '\n') && !insideQuotes) {
+      if (char === '\r' && nextChar === '\n') {
+        i++;
+      }
+      currentRow.push(currentCell);
+      if (currentRow.some(c => c.trim().length > 0)) {
+        rows.push(currentRow);
+      }
+      currentRow = [];
+      currentCell = "";
     } else {
-      return null; // 表形式とみなさない
+      currentCell += char;
     }
   }
 
-  const rows = lines.map(line => {
-    if (delimiter === "\t") {
-      return line.split("\t").map(cell => cell.trim());
-    } else {
-      return line.split(",").map(cell => cell.trim().replace(/^"(.*)"$/, "$1"));
+  currentRow.push(currentCell);
+  if (currentRow.some(c => c.trim().length > 0)) {
+    rows.push(currentRow);
+  }
+
+  return rows;
+}
+
+/**
+ * プレーンテキスト（TSV / CSV）からMarkdown表に変換
+ */
+function parsePlainTableToMarkdown(text) {
+  if (!text || typeof text !== "string") return null;
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const hasTab = trimmed.includes("\t");
+  let delimiter = hasTab ? "\t" : ",";
+
+  if (!hasTab) {
+    const firstLines = trimmed.split(/\r?\n/).slice(0, 5);
+    const commaCounts = firstLines.map(l => (l.match(/,/g) || []).length);
+    if (commaCounts.length === 0 || commaCounts[0] === 0 || !commaCounts.every(c => Math.abs(c - commaCounts[0]) <= 1)) {
+      return null;
+    }
+  }
+
+  const rawRows = parseDelimitedText(trimmed, delimiter);
+  if (rawRows.length < 1) return null;
+
+  const rows = rawRows.map(row => row.map(cell => formatMarkdownTableCell(cell)));
+  const maxCols = Math.max(...rows.map(r => r.length));
+  if (maxCols <= 1) return null;
+
+  rows.forEach(r => {
+    while (r.length < maxCols) {
+      r.push(" ");
     }
   });
 
-  const colCount = Math.max(...rows.map(r => r.length));
-  if (colCount <= 1) return null;
+  const headerRow = `| ${rows[0].join(" | ")} |`;
+  const sepRow = `| ${rows[0].map(() => "---").join(" | ")} |`;
+  const bodyRows = rows.slice(1).map(row => `| ${row.join(" | ")} |`);
 
-  const header = rows[0];
-  while (header.length < colCount) header.push("");
-  const headerRow = `| ${header.map(c => c || " ").join(" | ")} |`;
-  const sepRow = `| ${header.map(() => "---").join(" | ")} |`;
-  const dataRows = rows.slice(1).map(row => {
-    const r = [...row];
-    while (r.length < colCount) r.push("");
-    return `| ${r.map(c => c || " ").join(" | ")} |`;
-  });
-
-  return [headerRow, sepRow, ...dataRows].join("\n");
+  return [headerRow, sepRow, ...bodyRows].join("\n");
 }
 
-function insertTextAtCursor(textarea, text, targetPos = null) {
+/**
+ * クリップボードデータから最適なMarkdown表を生成
+ */
+function parseClipboardTableToMarkdown(clipboardData) {
+  if (!clipboardData) return null;
+
+  // 1. text/html を最優先 (Excel, Google Sheets, Webテーブルの完全構造)
+  const html = clipboardData.getData("text/html");
+  if (html) {
+    const md = parseHtmlTableToMarkdown(html);
+    if (md) return md;
+  }
+
+  // 2. text/plain をフォールバック利用 (TSV/CSVテキスト)
+  const plainText = clipboardData.getData("text/plain");
+  if (plainText) {
+    const md = parsePlainTableToMarkdown(plainText);
+    if (md) return md;
+  }
+
+  return null;
+}
+
+function insertTextAtCursor(textarea, text, targetPos = null, addBlankLines = true) {
   if (!textarea) return;
-  const val = textarea.value;
-  let start = textarea.selectionStart !== undefined ? textarea.selectionStart : val.length;
-  let end = textarea.selectionEnd !== undefined ? textarea.selectionEnd : val.length;
+  textarea.focus();
+
+  let start = textarea.selectionStart !== undefined ? textarea.selectionStart : textarea.value.length;
+  let end = textarea.selectionEnd !== undefined ? textarea.selectionEnd : textarea.value.length;
 
   if (typeof targetPos === "number" && targetPos >= 0) {
     start = targetPos;
     end = targetPos;
   }
 
+  const val = textarea.value;
   const before = val.substring(0, start);
   const after = val.substring(end);
 
-  const prefix = (start > 0 && !before.endsWith("\n\n")) ? (before.endsWith("\n") ? "\n" : "\n\n") : "";
-  const suffix = (!after.startsWith("\n\n")) ? (after.startsWith("\n") ? "\n" : "\n\n") : "";
+  let insertion = text;
+  if (addBlankLines) {
+    const prefix = (start > 0 && !before.endsWith("\n\n")) ? (before.endsWith("\n") ? "\n" : "\n\n") : "";
+    const suffix = (!after.startsWith("\n\n")) ? (after.startsWith("\n") ? "\n" : "\n\n") : "";
+    insertion = prefix + text.trim() + suffix;
+  }
 
-  const insertion = prefix + text.trim() + suffix;
-  textarea.value = before + insertion + after;
+  // document.execCommand('insertText') を実行してブラウザの Undo 履歴 (Ctrl+Z) に正しく登録
+  let success = false;
+  try {
+    textarea.setSelectionRange(start, end);
+    success = document.execCommand("insertText", false, insertion);
+  } catch (err) {
+    success = false;
+  }
 
-  const newPos = start + insertion.length;
-  textarea.selectionStart = newPos;
-  textarea.selectionEnd = newPos;
-  textarea.focus();
+  if (!success) {
+    // execCommand が失敗した場合のフォールバック
+    textarea.value = before + insertion + after;
+    const newPos = start + insertion.length;
+    textarea.selectionStart = newPos;
+    textarea.selectionEnd = newPos;
+  }
+
+  // input イベントを発火してプレビュー等を連動
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
   updatePreview();
 }
 
 function initEditorDragAndPaste(textarea) {
   if (!textarea) return;
+
+  let isShiftPasteActive = false;
+
+  // Shift + Ctrl + V (Mac は Shift + Cmd + V) を検知
+  textarea.addEventListener("keydown", (e) => {
+    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+    const isCtrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+    if (isCtrlOrCmd && e.shiftKey && (e.key === "v" || e.key === "V")) {
+      isShiftPasteActive = true;
+    }
+  });
+
+  textarea.addEventListener("keyup", (e) => {
+    if (e.key === "Shift" || e.key === "Control" || e.key === "Meta" || e.key === "v" || e.key === "V") {
+      setTimeout(() => {
+        isShiftPasteActive = false;
+      }, 150);
+    }
+  });
 
   // ドラッグオーバー
   textarea.addEventListener("dragover", (e) => {
@@ -1326,6 +1752,21 @@ function initEditorDragAndPaste(textarea) {
       dropPos = textarea.selectionStart;
     }
 
+    // 外部ファイル（PC等から直接ファイルがドロップされた場合）
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const uploaded = await uploadFileList(e.dataTransfer.files);
+      if (uploaded && uploaded.length > 0) {
+        for (const att of uploaded) {
+          if (att.is_image) {
+            insertTextAtCursor(textarea, `![${att.filename}](${att.rel_path})\n`, dropPos, true);
+          } else {
+            insertTextAtCursor(textarea, `[📎 ${att.filename}](${att.rel_path})\n`, dropPos, true);
+          }
+        }
+      }
+      return;
+    }
+
     const attJson = e.dataTransfer.getData("application/lab-note-att");
     if (attJson) {
       try {
@@ -1333,10 +1774,10 @@ function initEditorDragAndPaste(textarea) {
         if (att.is_csv) {
           await insertCsvAsMarkdownTable(att, textarea, dropPos);
         } else if (att.is_image) {
-          insertTextAtCursor(textarea, `![${att.filename}](${att.rel_path})`, dropPos);
+          insertTextAtCursor(textarea, `![${att.filename}](${att.rel_path})`, dropPos, true);
           showToast(`図「${att.filename}」を挿入しました`, "info");
         } else {
-          insertTextAtCursor(textarea, `[📎 ${att.filename}](${att.rel_path})`, dropPos);
+          insertTextAtCursor(textarea, `[📎 ${att.filename}](${att.rel_path})`, dropPos, true);
           showToast(`添付リンクを挿入しました`, "info");
         }
         return;
@@ -1348,22 +1789,35 @@ function initEditorDragAndPaste(textarea) {
     // 通常のプレーンテキストドロップ
     const text = e.dataTransfer.getData("text/plain");
     if (text) {
-      insertTextAtCursor(textarea, text, dropPos);
+      insertTextAtCursor(textarea, text, dropPos, false);
     }
   });
 
-  // 案C: Excel/スプレッドシートからの直接コピペ自動Markdown表変換
+  // ペースト処理（Ctrl+V / Shift+Ctrl+V）
   textarea.addEventListener("paste", (e) => {
+    const isShiftPaste = isShiftPasteActive;
+    isShiftPasteActive = false; // 直ちにリセット
+
     const clipboardData = e.clipboardData || window.clipboardData;
     if (!clipboardData) return;
-    const text = clipboardData.getData("text/plain");
-    if (!text) return;
 
-    const mdTable = parseTableTextToMarkdown(text);
+    // 1. Shift + Ctrl + V の場合: 表変換を行わず、プレーンテキストをそのまま挿入 (Ctrl+Z 可能)
+    if (isShiftPaste) {
+      e.preventDefault();
+      const plainText = clipboardData.getData("text/plain");
+      if (plainText) {
+        insertTextAtCursor(textarea, plainText, null, false);
+        showToast("プレーンテキストとして貼り付けました", "info");
+      }
+      return;
+    }
+
+    // 2. 通常の Ctrl + V の場合: 表データ（HTML table または TSV/CSV）なら Markdown 表に自動変換 (Ctrl+Z 可能)
+    const mdTable = parseClipboardTableToMarkdown(clipboardData);
     if (mdTable) {
       e.preventDefault();
-      insertTextAtCursor(textarea, mdTable);
-      showToast("Excelの表をMarkdown表形式に自動変換して挿入しました", "success");
+      insertTextAtCursor(textarea, mdTable, null, true);
+      showToast("表データをMarkdown表形式に自動変換して挿入しました (Ctrl+Zで元に戻せます)", "success");
     }
   });
 }
@@ -1429,12 +1883,12 @@ async function insertCsvAsMarkdownTable(att, textarea, targetPos = null) {
     const header = [...data.headers];
     while (header.length < colCount) header.push("");
     
-    const headerRow = `| ${header.map(c => c || " ").join(" | ")} |`;
+    const headerRow = `| ${header.map(c => formatMarkdownTableCell(c)).join(" | ")} |`;
     const sepRow = `| ${header.map(() => "---").join(" | ")} |`;
     const dataRows = (data.rows || []).map(row => {
       const r = [...row];
       while (r.length < colCount) r.push("");
-      return `| ${r.map(c => c || " ").join(" | ")} |`;
+      return `| ${r.map(c => formatMarkdownTableCell(c)).join(" | ")} |`;
     });
 
     const tableMd = `### 表：${att.filename}\n` + [headerRow, sepRow, ...dataRows].join("\n");
@@ -1451,7 +1905,7 @@ function renderAttachments(attachments) {
   if (!container) return;
 
   if (attachments.length === 0) {
-    container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.78rem;">なし</span>';
+    container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.78rem;">なし (ファイルをここにドラッグ＆ドロップして追加)</span>';
     return;
   }
 
@@ -1499,26 +1953,112 @@ function triggerFileUpload() {
   document.getElementById("file-upload-input").click();
 }
 
+async function uploadFileList(files) {
+  if (!files || files.length === 0) return [];
+  if (!currentEditingProjectId || !currentEditingExpId) {
+    showToast("ファイルを添付する前に、一度「保存する」ボタンを押して実験ノートを作成してください", "warning");
+    return [];
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+  const lastUploadedAtts = [];
+
+  for (const file of Array.from(files)) {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(currentEditingProjectId)}/experiments/${encodeURIComponent(currentEditingExpId)}/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        successCount++;
+        const filename = data.filename || file.name;
+        const lower = filename.toLowerCase();
+        const isImg = /\.(png|jpe?g|gif|webp|svg)$/.test(lower);
+        const isCsv = /\.(csv|tsv)$/.test(lower);
+        const rel_path = `/api/projects/${encodeURIComponent(currentEditingProjectId)}/experiments/${encodeURIComponent(currentEditingExpId)}/files/${encodeURIComponent(filename)}`;
+        lastUploadedAtts.push({
+          filename,
+          rel_path,
+          is_image: isImg,
+          is_csv: isCsv,
+        });
+      } else {
+        failCount++;
+      }
+    } catch (e) {
+      console.error("Upload failed for file", file.name, e);
+      failCount++;
+    }
+  }
+
+  if (successCount > 0) {
+    showToast(`${successCount} 件のファイルを添付しました`, "success");
+    await openEditorForExperiment(currentEditingProjectId, currentEditingExpId);
+  }
+  if (failCount > 0) {
+    showToast(`${failCount} 件のファイル添付に失敗しました`, "error");
+  }
+
+  return lastUploadedAtts;
+}
+
 async function uploadFile() {
   const fileInput = document.getElementById("file-upload-input");
-  if (!fileInput || !fileInput.files.length || !currentEditingProjectId || !currentEditingExpId) return;
+  if (!fileInput || !fileInput.files.length) return;
+  await uploadFileList(fileInput.files);
+  fileInput.value = "";
+}
 
-  const file = fileInput.files[0];
-  const formData = new FormData();
-  formData.append("file", file);
+function initAttachmentsBarDragAndDrop() {
+  const bar = document.getElementById("attachments-bar");
+  if (!bar) return;
 
-  try {
-    const res = await fetch(`/api/projects/${encodeURIComponent(currentEditingProjectId)}/experiments/${encodeURIComponent(currentEditingExpId)}/upload`, {
-      method: "POST",
-      body: formData,
-    });
-    if (!res.ok) throw new Error("Upload failed");
-    fileInput.value = "";
-    showToast(`ファイル「${file.name}」を添付しました`, "success");
-    await openEditorForExperiment(currentEditingProjectId, currentEditingExpId);
-  } catch (e) {
-    showToast("アップロード失敗: " + e.message, "error");
-  }
+  // ブラウザがファイルを画面全体で開いてしまう誤動作を防止
+  window.addEventListener("dragover", (e) => {
+    if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes("Files")) {
+      e.preventDefault();
+    }
+  });
+  window.addEventListener("drop", (e) => {
+    if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes("Files")) {
+      // bar や textarea 以外の意図しないドロップによる画面遷移を阻止
+      e.preventDefault();
+    }
+  });
+
+  bar.addEventListener("dragenter", (e) => {
+    if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes("Files")) {
+      e.preventDefault();
+      bar.classList.add("drag-over");
+    }
+  });
+
+  bar.addEventListener("dragover", (e) => {
+    if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes("Files")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      bar.classList.add("drag-over");
+    }
+  });
+
+  bar.addEventListener("dragleave", (e) => {
+    if (!bar.contains(e.relatedTarget)) {
+      bar.classList.remove("drag-over");
+    }
+  });
+
+  bar.addEventListener("drop", async (e) => {
+    bar.classList.remove("drag-over");
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      e.preventDefault();
+      await uploadFileList(e.dataTransfer.files);
+    }
+  });
 }
 
 async function deleteAttachment(filename) {
@@ -1629,7 +2169,6 @@ async function loadProtocols() {
              id="proto-card-${proto.id}" 
              onclick="toggleProtocolCardSelection('${proto.id}', event)" 
              oncontextmenu="handleProtocolContextMenu(event, '${proto.id}')">
-          <div class="card-select-badge">✓</div>
           <div>
             <div class="card-top" style="margin-bottom: 2px;">
               <span class="protocol-id-badge" style="font-family: monospace; font-size: 0.8rem; font-weight: 700; color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 6px; border-radius: 4px;" title="管理ID: ${proto.id}">🏷️ ${proto.id}</span>
@@ -1645,13 +2184,20 @@ async function loadProtocols() {
               ${proto.attachments && proto.attachments.length > 0 ? `<span style="font-size: 0.78rem; color: var(--text-muted);" title="${proto.attachments.length}個の参考添付ファイル">📎 ${proto.attachments.length}</span>` : ""}
             </div>
             <div style="display: flex; gap: 6px;">
-              <a class="btn btn-secondary" style="padding: 3px 6px; font-size: 0.75rem; text-decoration: none;" 
-                 href="/protocols/${encodeURIComponent(proto.id)}/preview" target="_blank" onclick="event.stopPropagation()">
-                👁️ プレビュー
+              <a class="btn btn-secondary" style="padding: 3px 7px; font-size: 0.82rem; text-decoration: none;" 
+                 href="/protocols/${encodeURIComponent(proto.id)}/preview" target="_blank" onclick="event.stopPropagation()"
+                 title="プレビュー">
+                👁️
               </a>
-              <button class="btn btn-secondary" style="padding: 3px 6px; font-size: 0.75rem;" 
-                onclick="event.stopPropagation(); startExperimentFromSingleProtocol('${proto.id}')">
-                ⚡ 実験開始
+              <button class="btn btn-secondary" style="padding: 3px 7px; font-size: 0.82rem;" 
+                onclick="event.stopPropagation(); openProtocolEditorForEdit('${proto.id}')"
+                title="編集">
+                ✏️
+              </button>
+              <button class="btn btn-secondary" style="padding: 3px 7px; font-size: 0.82rem;" 
+                onclick="event.stopPropagation(); startExperimentFromSingleProtocol('${proto.id}')"
+                title="実験開始">
+                ⚡
               </button>
             </div>
           </div>
@@ -1737,12 +2283,12 @@ function handleProtocolContextMenu(event, protoId) {
     {
       icon: "✏️",
       label: "編集",
-      action: () => editProtocol(protoId)
+      action: () => openProtocolEditorForEdit(protoId)
     },
     {
       icon: "📋",
       label: "複製 (登録画面で編集)",
-      action: () => duplicateProtocol(protoId)
+      action: () => openProtocolEditorForDuplicate(protoId)
     },
     { divider: true },
     {
@@ -1756,41 +2302,160 @@ function handleProtocolContextMenu(event, protoId) {
 }
 
 // ==========================================
-// Protocol Attachments & Modal Management
+// Protocol Editor Operations (Full-screen view)
 // ==========================================
 
-let pendingProtoFiles = [];
-let currentProtoAttachments = [];
+let currentEditingProtoId = null;
+let pendingProtoEditorFiles = [];
+let currentProtoEditorAttachments = [];
+let isProtoEditorMetaCollapsed = false;
+let isProtoFullscreenInput = false;
+let isProtoFullscreenPreview = false;
+let protoIdUserEdited = false;
+let protoTitleDebounceTimer = null;
 
-function renderProtoAttachments() {
-  const listEl = document.getElementById("proto-attachments-list");
+// Summary update for collapsed bar
+function updateCollapsedProtoSummary() {
+  const idVal = document.getElementById("proto-edit-id-input")?.value.trim() || "";
+  const titleVal = document.getElementById("proto-edit-title")?.value.trim() || "";
+  const catVal = document.getElementById("proto-edit-category")?.value.trim() || "General";
+
+  const idEl = document.getElementById("collapsed-proto-id");
+  if (idEl) idEl.textContent = idVal ? `🏷️ ${idVal}` : "🏷️ (ID未設定)";
+
+  const titleEl = document.getElementById("collapsed-proto-title");
+  if (titleEl) titleEl.textContent = titleVal ? `📋 ${titleVal}` : "📋 (タイトル未設定)";
+
+  const catEl = document.getElementById("collapsed-proto-category");
+  if (catEl) catEl.textContent = `🗂️ ${catVal}`;
+
+  if (titleVal) {
+    document.title = `${titleVal} - プロトコル編集`;
+  } else {
+    document.title = "プロトコル編集 - 電子実験ノート";
+  }
+}
+
+// Meta card collapse toggle
+function toggleProtoEditorMetaCard(forceState) {
+  const card = document.getElementById("proto-header-card");
+  const bar = document.getElementById("proto-meta-collapsed-bar");
+  if (!card || !bar) return;
+
+  if (typeof forceState === "boolean") {
+    isProtoEditorMetaCollapsed = forceState;
+  } else {
+    isProtoEditorMetaCollapsed = !isProtoEditorMetaCollapsed;
+  }
+
+  if (isProtoEditorMetaCollapsed) {
+    card.style.display = "none";
+    bar.style.display = "flex";
+  } else {
+    card.style.display = "block";
+    bar.style.display = "none";
+  }
+}
+
+// Live preview
+function updateProtoPreview() {
+  const markdownText = document.getElementById("proto-markdown-input")?.value || "";
+  const previewContainer = document.getElementById("proto-markdown-preview");
+  if (!previewContainer) return;
+
+  if (typeof marked !== "undefined") {
+    previewContainer.innerHTML = marked.parse(markdownText);
+  } else {
+    previewContainer.textContent = markdownText;
+  }
+}
+
+// Fullscreen toggle for proto panes
+function toggleFullscreenProtoInput() {
+  const panes = document.getElementById("proto-editor-panes");
+  const icon = document.getElementById("icon-proto-fs-input");
+  if (!panes) return;
+
+  if (isProtoFullscreenInput) {
+    panes.classList.remove("fullscreen-input");
+    isProtoFullscreenInput = false;
+    if (icon) icon.innerHTML = SVG_EXPAND;
+  } else {
+    panes.classList.remove("fullscreen-preview");
+    isProtoFullscreenPreview = false;
+    const prevIcon = document.getElementById("icon-proto-fs-preview");
+    if (prevIcon) prevIcon.innerHTML = SVG_EXPAND;
+
+    panes.classList.add("fullscreen-input");
+    isProtoFullscreenInput = true;
+    if (icon) icon.innerHTML = SVG_COMPRESS;
+  }
+}
+
+function toggleFullscreenProtoPreview() {
+  const panes = document.getElementById("proto-editor-panes");
+  const icon = document.getElementById("icon-proto-fs-preview");
+  if (!panes) return;
+
+  if (isProtoFullscreenPreview) {
+    panes.classList.remove("fullscreen-preview");
+    isProtoFullscreenPreview = false;
+    if (icon) icon.innerHTML = SVG_EXPAND;
+  } else {
+    panes.classList.remove("fullscreen-input");
+    isProtoFullscreenInput = false;
+    const inputIcon = document.getElementById("icon-proto-fs-input");
+    if (inputIcon) inputIcon.innerHTML = SVG_EXPAND;
+
+    panes.classList.add("fullscreen-preview");
+    isProtoFullscreenPreview = true;
+    if (icon) icon.innerHTML = SVG_COMPRESS;
+  }
+}
+
+function resetProtoFullscreen() {
+  const panes = document.getElementById("proto-editor-panes");
+  if (panes) {
+    panes.classList.remove("fullscreen-input", "fullscreen-preview");
+  }
+  isProtoFullscreenInput = false;
+  isProtoFullscreenPreview = false;
+  const inIcon = document.getElementById("icon-proto-fs-input");
+  const prIcon = document.getElementById("icon-proto-fs-preview");
+  if (inIcon) inIcon.innerHTML = SVG_EXPAND;
+  if (prIcon) prIcon.innerHTML = SVG_EXPAND;
+}
+
+// Protocol Attachments Management
+function renderProtoEditorAttachments() {
+  const listEl = document.getElementById("proto-editor-attachments-list");
   if (!listEl) return;
 
-  const totalCount = currentProtoAttachments.length + pendingProtoFiles.length;
+  const totalCount = currentProtoEditorAttachments.length + pendingProtoEditorFiles.length;
   if (totalCount === 0) {
-    listEl.innerHTML = '<span style="color: var(--text-muted); font-size: 0.76rem;">添付ファイルはありません</span>';
+    listEl.innerHTML = '<span style="color: var(--text-muted); font-size: 0.78rem;">添付ファイルはありません</span>';
     return;
   }
 
   let html = "";
   // 既存の添付ファイル
-  currentProtoAttachments.forEach((att) => {
+  currentProtoEditorAttachments.forEach((att) => {
     html += `
       <div class="proto-attachment-chip">
         <span>📎</span>
-        <a href="${att.rel_path}" target="_blank" title="${att.filename} (${Math.round(att.size / 1024)} KB)">${att.filename}</a>
-        <button type="button" class="btn-chip-del" title="削除" onclick="deleteExistingProtoAttachment('${att.saved_name}')">&times;</button>
+        <a href="${escapeHtml(att.rel_path)}" target="_blank" title="${escapeHtml(att.filename)} (${Math.round(att.size / 1024)} KB)">${escapeHtml(att.filename)}</a>
+        <button type="button" class="btn-chip-del" title="削除" onclick="deleteExistingProtoEditorAttachment('${escapeHtml(att.saved_name)}')">&times;</button>
       </div>
     `;
   });
 
-  // 新規登録時の未保存ファイル
-  pendingProtoFiles.forEach((file, idx) => {
+  // 新規作成時の保留ファイル
+  pendingProtoEditorFiles.forEach((file, idx) => {
     html += `
       <div class="proto-attachment-chip" style="background: #ecfdf5; border-color: #a7f3d0;">
         <span>📄</span>
-        <span style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${file.name} (${Math.round(file.size / 1024)} KB)">${file.name} (登録時に保存)</span>
-        <button type="button" class="btn-chip-del" title="取り消し" onclick="removePendingProtoFile(${idx})">&times;</button>
+        <span style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(file.name)} (${Math.round(file.size / 1024)} KB)">${escapeHtml(file.name)} (保存時にアップロード)</span>
+        <button type="button" class="btn-chip-del" title="取り消し" onclick="removePendingProtoEditorFile(${idx})">&times;</button>
       </div>
     `;
   });
@@ -1798,23 +2463,22 @@ function renderProtoAttachments() {
   listEl.innerHTML = html;
 }
 
-function onProtoFileSelected(event) {
+function onProtoEditorFileSelected(event) {
   const files = Array.from(event.target.files || []);
   if (!files.length) return;
 
-  const editId = document.getElementById("proto-edit-id").value.trim();
-  if (editId) {
+  if (currentEditingProtoId) {
     // 既存プロトコル編集中の場合は即時アップロード
-    uploadProtoFilesImmediately(editId, files);
+    uploadProtoFilesImmediatelyForEditor(currentEditingProtoId, files);
   } else {
     // 新規作成時は保留リストに追加
-    files.forEach((f) => pendingProtoFiles.push(f));
-    renderProtoAttachments();
+    files.forEach((f) => pendingProtoEditorFiles.push(f));
+    renderProtoEditorAttachments();
   }
   event.target.value = "";
 }
 
-async function uploadProtoFilesImmediately(protoId, files) {
+async function uploadProtoFilesImmediatelyForEditor(protoId, files) {
   for (const file of files) {
     const formData = new FormData();
     formData.append("file", file);
@@ -1829,58 +2493,56 @@ async function uploadProtoFilesImmediately(protoId, files) {
       showToast(`添付追加エラー: ${err.message}`, "error");
     }
   }
-  await reloadProtoAttachmentsForEdit(protoId);
+  await reloadProtoEditorAttachments(protoId);
   await loadProtocols();
 }
 
-async function reloadProtoAttachmentsForEdit(protoId) {
+async function reloadProtoEditorAttachments(protoId) {
   try {
     const res = await fetch(`/api/protocols/${encodeURIComponent(protoId)}`);
     if (res.ok) {
       const data = await res.json();
-      currentProtoAttachments = data.attachments || [];
-      pendingProtoFiles = [];
-      renderProtoAttachments();
+      currentProtoEditorAttachments = data.attachments || [];
+      pendingProtoEditorFiles = [];
+      renderProtoEditorAttachments();
     }
   } catch (e) {
-    console.error("reloadProtoAttachmentsForEdit failed", e);
+    console.error("reloadProtoEditorAttachments failed", e);
   }
 }
 
-function removePendingProtoFile(index) {
-  pendingProtoFiles.splice(index, 1);
-  renderProtoAttachments();
+function removePendingProtoEditorFile(index) {
+  pendingProtoEditorFiles.splice(index, 1);
+  renderProtoEditorAttachments();
 }
 
-async function deleteExistingProtoAttachment(savedName) {
-  const editId = document.getElementById("proto-edit-id").value.trim();
-  if (!editId) return;
+async function deleteExistingProtoEditorAttachment(savedName) {
+  if (!currentEditingProtoId) return;
 
   try {
-    const res = await fetch(`/api/protocols/${encodeURIComponent(editId)}/files/${encodeURIComponent(savedName)}`, {
+    const res = await fetch(`/api/protocols/${encodeURIComponent(currentEditingProtoId)}/files/${encodeURIComponent(savedName)}`, {
       method: "DELETE",
     });
     if (!res.ok) throw new Error("削除に失敗しました");
     showToast("添付ファイルを削除しました", "info");
-    await reloadProtoAttachmentsForEdit(editId);
+    await reloadProtoEditorAttachments(currentEditingProtoId);
     await loadProtocols();
   } catch (e) {
     showToast("添付削除エラー: " + e.message, "error");
   }
 }
 
-let protoIdUserEdited = false;
-let protoTitleDebounceTimer = null;
-
-async function autoGenerateProtocolId(titleHint) {
-  const hint = titleHint !== undefined ? titleHint : (document.getElementById("proto-title")?.value || "");
+// ID Auto-generation
+async function autoGenerateProtocolIdForEditor(titleHint) {
+  const hint = titleHint !== undefined ? titleHint : (document.getElementById("proto-edit-title")?.value || "");
   try {
     const res = await fetch(`/api/protocols/generate-id?name=${encodeURIComponent(hint)}`);
     if (res.ok) {
       const data = await res.json();
-      const idInput = document.getElementById("proto-id-input");
-      if (idInput) {
+      const idInput = document.getElementById("proto-edit-id-input");
+      if (idInput && !protoIdUserEdited) {
         idInput.value = data.id;
+        updateCollapsedProtoSummary();
       }
       return data.id;
     }
@@ -1905,153 +2567,197 @@ async function autoGenerateProtocolId(titleHint) {
   });
   const nextNo = String(maxNo + 1).padStart(2, "0");
   const generated = `${nextNo}-${cleanName}-${yymmdd}`;
-  const idInput = document.getElementById("proto-id-input");
-  if (idInput) {
+  const idInput = document.getElementById("proto-edit-id-input");
+  if (idInput && !protoIdUserEdited) {
     idInput.value = generated;
+    updateCollapsedProtoSummary();
   }
   return generated;
 }
 
-function onProtoTitleInput(val) {
-  const editId = document.getElementById("proto-edit-id")?.value.trim();
-  if (editId) return; // 既存編集時は変更しない
+function onProtoEditorTitleInput(val) {
+  if (currentEditingProtoId) return; // 既存編集時は変更しない
   if (protoIdUserEdited) return; // ユーザーが手動編集した場合は自動更新しない
 
   clearTimeout(protoTitleDebounceTimer);
   protoTitleDebounceTimer = setTimeout(() => {
-    autoGenerateProtocolId(val);
+    autoGenerateProtocolIdForEditor(val);
   }, 250);
 }
 
-async function openNewProtocolModal() {
+async function onAutoGenerateProtoIdClick() {
+  if (currentEditingProtoId) return;
   protoIdUserEdited = false;
-  document.getElementById("proto-modal-title").textContent = "新規プロトコル作成";
-  document.getElementById("proto-edit-id").value = "";
+  const titleVal = document.getElementById("proto-edit-title")?.value || "";
+  await autoGenerateProtocolIdForEditor(titleVal);
+  showToast("管理IDを自動採番しました", "info");
+}
 
-  const idInput = document.getElementById("proto-id-input");
+// Protocol Editor Openers
+async function openProtocolEditorForNew() {
+  currentEditingProtoId = null;
+  protoIdUserEdited = false;
+
+  showView("protocol-editor");
+  document.getElementById("proto-editor-page-heading").textContent = "新規プロトコル作成";
+
+  const idInput = document.getElementById("proto-edit-id-input");
   if (idInput) {
     idInput.readOnly = false;
     idInput.disabled = false;
     idInput.style.backgroundColor = "";
     idInput.value = "";
-    idInput.oninput = () => { protoIdUserEdited = true; };
+    idInput.oninput = () => {
+      protoIdUserEdited = true;
+      updateCollapsedProtoSummary();
+    };
   }
+  const autoBtn = document.getElementById("btn-auto-proto-id");
+  if (autoBtn) autoBtn.style.display = "inline";
 
-  document.getElementById("proto-title").value = "";
-  document.getElementById("proto-category").value = "General";
-  document.getElementById("proto-version").value = "1.0";
-  document.getElementById("proto-description").value = "";
-  document.getElementById("proto-tags").value = "";
-  document.getElementById("proto-content").value = "- [ ] ステップ 1\n- [ ] ステップ 2\n- [ ] ステップ 3";
-  
-  pendingProtoFiles = [];
-  currentProtoAttachments = [];
-  renderProtoAttachments();
-  
-  await autoGenerateProtocolId("");
-  document.getElementById("protocol-modal").style.display = "flex";
+  document.getElementById("proto-original-id").value = "";
+  document.getElementById("proto-edit-title").value = "";
+  document.getElementById("proto-edit-category").value = "General";
+  document.getElementById("proto-edit-version").value = "1.0";
+  document.getElementById("proto-edit-desc").value = "";
+  document.getElementById("proto-edit-tags").value = "";
+  document.getElementById("proto-markdown-input").value = `## 目的・概要\n\n## 試薬・器具\n\n## 手順・プロトコル (チェックリスト形式)\n- [ ] ステップ 1\n- [ ] ステップ 2\n- [ ] ステップ 3\n\n## 注意事項・コツ\n`;
+
+  pendingProtoEditorFiles = [];
+  currentProtoEditorAttachments = [];
+  renderProtoEditorAttachments();
+
+  toggleProtoEditorMetaCard(false);
+  updateProtoPreview();
+  updateCollapsedProtoSummary();
+
+  const delBtn = document.getElementById("btn-delete-proto");
+  if (delBtn) delBtn.style.display = "none";
+
+  await autoGenerateProtocolIdForEditor("");
 }
 
-async function editProtocol(protoId) {
+async function openProtocolEditorForEdit(protoId) {
   try {
     const res = await fetch(`/api/protocols/${encodeURIComponent(protoId)}`);
     if (!res.ok) throw new Error("プロトコルの取得に失敗しました");
     const proto = await res.json();
 
-    document.getElementById("proto-modal-title").textContent = "プロトコルの編集";
-    document.getElementById("proto-edit-id").value = proto.id;
+    currentEditingProtoId = proto.id;
+    protoIdUserEdited = false;
 
-    const idInput = document.getElementById("proto-id-input");
+    showView("protocol-editor");
+    document.getElementById("proto-editor-page-heading").textContent = `プロトコルの編集 (${proto.id})`;
+
+    const idInput = document.getElementById("proto-edit-id-input");
     if (idInput) {
       idInput.value = proto.id;
       idInput.readOnly = true;
       idInput.disabled = true;
       idInput.style.backgroundColor = "var(--bg-muted, #f1f5f9)";
     }
+    const autoBtn = document.getElementById("btn-auto-proto-id");
+    if (autoBtn) autoBtn.style.display = "none";
 
-    document.getElementById("proto-title").value = proto.title || "";
-    document.getElementById("proto-category").value = proto.category || "General";
-    document.getElementById("proto-version").value = proto.version || "1.0";
-    document.getElementById("proto-description").value = proto.description || "";
-    document.getElementById("proto-tags").value = (proto.tags || []).join(", ");
-    document.getElementById("proto-content").value = proto.content || "";
+    document.getElementById("proto-original-id").value = proto.id;
+    document.getElementById("proto-edit-title").value = proto.title || "";
+    document.getElementById("proto-edit-category").value = proto.category || "General";
+    document.getElementById("proto-edit-version").value = proto.version || "1.0";
+    document.getElementById("proto-edit-desc").value = proto.description || "";
+    document.getElementById("proto-edit-tags").value = (proto.tags || []).join(", ");
+    document.getElementById("proto-markdown-input").value = proto.content || "";
 
-    currentProtoAttachments = proto.attachments || [];
-    pendingProtoFiles = [];
-    renderProtoAttachments();
+    currentProtoEditorAttachments = proto.attachments || [];
+    pendingProtoEditorFiles = [];
+    renderProtoEditorAttachments();
 
-    document.getElementById("protocol-modal").style.display = "flex";
+    toggleProtoEditorMetaCard(false);
+    updateProtoPreview();
+    updateCollapsedProtoSummary();
+
+    const delBtn = document.getElementById("btn-delete-proto");
+    if (delBtn) delBtn.style.display = "inline-flex";
   } catch (e) {
     showToast("エラー: " + e.message, "error");
+    backToProtocolList();
   }
 }
 
-async function duplicateProtocol(protoId) {
+async function openProtocolEditorForDuplicate(protoId) {
   try {
     const res = await fetch(`/api/protocols/${encodeURIComponent(protoId)}`);
     if (!res.ok) throw new Error("プロトコルの取得に失敗しました");
     const proto = await res.json();
 
+    currentEditingProtoId = null; // New protocol
     protoIdUserEdited = false;
-    document.getElementById("proto-modal-title").textContent = "新規プロトコル作成 (複製)";
-    document.getElementById("proto-edit-id").value = ""; // Clear to treat as new
 
-    const idInput = document.getElementById("proto-id-input");
+    showView("protocol-editor");
+    document.getElementById("proto-editor-page-heading").textContent = "新規プロトコル作成 (複製)";
+
+    const idInput = document.getElementById("proto-edit-id-input");
     if (idInput) {
       idInput.readOnly = false;
       idInput.disabled = false;
       idInput.style.backgroundColor = "";
       idInput.value = "";
-      idInput.oninput = () => { protoIdUserEdited = true; };
+      idInput.oninput = () => {
+        protoIdUserEdited = true;
+        updateCollapsedProtoSummary();
+      };
     }
+    const autoBtn = document.getElementById("btn-auto-proto-id");
+    if (autoBtn) autoBtn.style.display = "inline";
 
     const copyTitle = `${proto.title} (コピー)`;
-    document.getElementById("proto-title").value = copyTitle;
-    document.getElementById("proto-category").value = proto.category || "General";
-    document.getElementById("proto-version").value = proto.version || "1.0";
-    document.getElementById("proto-description").value = proto.description || "";
-    document.getElementById("proto-tags").value = (proto.tags || []).join(", ");
-    document.getElementById("proto-content").value = proto.content || "";
+    document.getElementById("proto-original-id").value = "";
+    document.getElementById("proto-edit-title").value = copyTitle;
+    document.getElementById("proto-edit-category").value = proto.category || "General";
+    document.getElementById("proto-edit-version").value = proto.version || "1.0";
+    document.getElementById("proto-edit-desc").value = proto.description || "";
+    document.getElementById("proto-edit-tags").value = (proto.tags || []).join(", ");
+    document.getElementById("proto-markdown-input").value = proto.content || "";
 
-    pendingProtoFiles = [];
-    currentProtoAttachments = [];
-    renderProtoAttachments();
+    pendingProtoEditorFiles = [];
+    currentProtoEditorAttachments = [];
+    renderProtoEditorAttachments();
 
-    await autoGenerateProtocolId(copyTitle);
-    document.getElementById("protocol-modal").style.display = "flex";
+    toggleProtoEditorMetaCard(false);
+    updateProtoPreview();
+    updateCollapsedProtoSummary();
+
+    const delBtn = document.getElementById("btn-delete-proto");
+    if (delBtn) delBtn.style.display = "none";
+
+    await autoGenerateProtocolIdForEditor(copyTitle);
   } catch (e) {
     showToast("エラー: " + e.message, "error");
   }
 }
 
-async function deleteProtocolDirect(protoId) {
-  try {
-    const res = await fetch(`/api/protocols/${encodeURIComponent(protoId)}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) throw new Error("Delete failed");
-    showToast("プロトコルを削除しました", "info");
-    await loadProtocols();
-  } catch (e) {
-    showToast("削除エラー: " + e.message, "error");
-  }
-}
-
-async function saveProtocolFromModal() {
-  const title = document.getElementById("proto-title").value.trim();
+// Protocol Editor Save & Delete
+async function saveProtocolFromEditor() {
+  const title = document.getElementById("proto-edit-title")?.value.trim();
   if (!title) {
     showToast("プロトコルタイトルを入力してください", "warning");
     return;
   }
-  const editId = document.getElementById("proto-edit-id").value.trim();
-  const idInput = document.getElementById("proto-id-input");
-  const customId = idInput ? idInput.value.trim() : "";
 
-  const category = document.getElementById("proto-category").value.trim() || "General";
-  const version = document.getElementById("proto-version").value.trim() || "1.0";
-  const description = document.getElementById("proto-description").value.trim();
-  const tags = document.getElementById("proto-tags").value.split(",").map(t => t.trim()).filter(t => t);
-  const content = document.getElementById("proto-content").value;
+  const idInput = document.getElementById("proto-edit-id-input");
+  const customId = idInput ? idInput.value.trim() : "";
+  if (!customId && !currentEditingProtoId) {
+    showToast("管理IDを入力または自動採番してください", "warning");
+    return;
+  }
+
+  const category = document.getElementById("proto-edit-category")?.value.trim() || "General";
+  const version = document.getElementById("proto-edit-version")?.value.trim() || "1.0";
+  const description = document.getElementById("proto-edit-desc")?.value.trim() || "";
+  const tags = (document.getElementById("proto-edit-tags")?.value || "")
+    .split(",")
+    .map(t => t.trim())
+    .filter(t => t);
+  const content = document.getElementById("proto-markdown-input")?.value || "";
 
   const payload = {
     title,
@@ -2061,10 +2767,10 @@ async function saveProtocolFromModal() {
     tags,
     content
   };
-  if (editId) {
-    payload.id = editId; // Update existing
+  if (currentEditingProtoId) {
+    payload.id = currentEditingProtoId;
   } else if (customId) {
-    payload.id = customId; // Custom/generated ID for new
+    payload.id = customId;
   }
 
   try {
@@ -2077,8 +2783,8 @@ async function saveProtocolFromModal() {
     const savedProto = await res.json();
 
     // 新規登録時の添付ファイルをアップロード
-    if (pendingProtoFiles.length > 0 && savedProto && savedProto.id) {
-      for (const file of pendingProtoFiles) {
+    if (pendingProtoEditorFiles.length > 0 && savedProto && savedProto.id) {
+      for (const file of pendingProtoEditorFiles) {
         const formData = new FormData();
         formData.append("file", file);
         try {
@@ -2090,15 +2796,69 @@ async function saveProtocolFromModal() {
           console.error("Failed to upload proto file", e);
         }
       }
-      pendingProtoFiles = [];
+      pendingProtoEditorFiles = [];
     }
 
-    closeModal("protocol-modal");
-    await loadProtocols();
     showToast("プロトコルを保存しました", "success");
+    await loadProtocols();
+    backToProtocolList();
   } catch (e) {
     showToast("保存エラー: " + e.message, "error");
   }
+}
+
+async function deleteProtocolFromEditor() {
+  if (!currentEditingProtoId) return;
+
+  const titleVal = document.getElementById("proto-edit-title")?.value || currentEditingProtoId;
+  if (!confirm(`プロトコル「${titleVal}」(${currentEditingProtoId}) を完全に削除しますか？`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/protocols/${encodeURIComponent(currentEditingProtoId)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Delete failed");
+    showToast("プロトコルを削除しました", "info");
+    await loadProtocols();
+    backToProtocolList();
+  } catch (e) {
+    showToast("削除エラー: " + e.message, "error");
+  }
+}
+
+async function deleteProtocolDirect(protoId) {
+  if (!confirm(`プロトコル (${protoId}) を削除しますか？`)) {
+    return;
+  }
+  try {
+    const res = await fetch(`/api/protocols/${encodeURIComponent(protoId)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Delete failed");
+    showToast("プロトコルを削除しました", "info");
+    if (currentEditingProtoId === protoId) {
+      backToProtocolList();
+    }
+    await loadProtocols();
+  } catch (e) {
+    showToast("削除エラー: " + e.message, "error");
+  }
+}
+
+// Backward compatibility aliases
+async function openNewProtocolModal() {
+  await openProtocolEditorForNew();
+}
+async function editProtocol(protoId) {
+  await openProtocolEditorForEdit(protoId);
+}
+async function duplicateProtocol(protoId) {
+  await openProtocolEditorForDuplicate(protoId);
+}
+async function saveProtocolFromModal() {
+  await saveProtocolFromEditor();
 }
 
 async function startExperimentFromSelectedProtocols() {
@@ -2126,6 +2886,131 @@ async function startExperimentFromProtocol(protoId) {
 function closeModal(modalId) {
   const modal = document.getElementById(modalId);
   if (modal) modal.style.display = "none";
+}
+
+// ==========================================
+// Keyboard Shortcuts & Shortcuts Modal
+// ==========================================
+
+function openShortcutsModal() {
+  const modal = document.getElementById("shortcuts-modal");
+  if (modal) modal.style.display = "flex";
+}
+
+function initKeyboardShortcuts() {
+  document.addEventListener("keydown", (e) => {
+    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+    const isCtrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+    // 1. Ctrl + S (または Cmd + S) -> 保存
+    if (isCtrlOrCmd && (e.key === "s" || e.key === "S")) {
+      e.preventDefault();
+
+      // プロトコルエディタ表示中 -> プロトコル保存
+      const protoEditView = document.getElementById("view-protocol-editor");
+      if (protoEditView && protoEditView.style.display !== "none") {
+        saveProtocolFromEditor();
+        return;
+      }
+
+      // 実験ノートエディタ表示中 -> 実験ノート保存
+      const editView = document.getElementById("view-editor");
+      if (editView && editView.style.display !== "none") {
+        saveExperiment();
+        return;
+      }
+
+      showToast("保存対象のエディタが開かれていません", "info");
+      return;
+    }
+
+    // 2. Ctrl + Z (または Cmd + Z) -> ひとつ戻る
+    if (isCtrlOrCmd && !e.shiftKey && (e.key === "z" || e.key === "Z")) {
+      const activeEl = document.activeElement;
+      const isInputFocused = activeEl && (
+        activeEl.tagName === "INPUT" ||
+        activeEl.tagName === "TEXTAREA" ||
+        activeEl.isContentEditable
+      );
+
+      // 入力欄フォーカス時は通常のテキスト取り消し (Undo) を優先
+      if (isInputFocused) {
+        return;
+      }
+
+      // 入力欄外の時は画面の「ひとつ戻る」
+      e.preventDefault();
+
+      // モーダルが開いていれば閉じる
+      const openModals = ["shortcuts-modal", "csv-modal", "hidden-projects-modal"];
+      for (const mId of openModals) {
+        const m = document.getElementById(mId);
+        if (m && m.style.display === "flex") {
+          closeModal(mId);
+          return;
+        }
+      }
+
+      // プロトコルエディタなら一覧へ戻る
+      const protoEditView = document.getElementById("view-protocol-editor");
+      if (protoEditView && protoEditView.style.display !== "none") {
+        backToProtocolList();
+        return;
+      }
+
+      // 実験ノートエディタなら一覧へ戻る
+      const editView = document.getElementById("view-editor");
+      if (editView && editView.style.display !== "none") {
+        backToExperimentList();
+        return;
+      }
+    }
+
+    // 3. Escape キー -> モーダルを閉じる
+    if (e.key === "Escape") {
+      const openModals = ["shortcuts-modal", "csv-modal", "hidden-projects-modal"];
+      for (const mId of openModals) {
+        const m = document.getElementById(mId);
+        if (m && m.style.display === "flex") {
+          closeModal(mId);
+          return;
+        }
+      }
+    }
+
+    // 4. ? または Ctrl + / -> ショートカット一覧メニューを開閉
+    if ((e.key === "?" && !isCtrlOrCmd) || (isCtrlOrCmd && e.key === "/")) {
+      const activeEl = document.activeElement;
+      const isInputFocused = activeEl && (
+        activeEl.tagName === "INPUT" ||
+        activeEl.tagName === "TEXTAREA" ||
+        activeEl.isContentEditable
+      );
+      if (isInputFocused && e.key === "?") {
+        return;
+      }
+
+      e.preventDefault();
+      const modal = document.getElementById("shortcuts-modal");
+      if (modal) {
+        if (modal.style.display === "flex") {
+          closeModal("shortcuts-modal");
+        } else {
+          openShortcutsModal();
+        }
+      }
+    }
+
+    // 5. Ctrl + P (または Cmd + P) -> PDF 印刷・出力
+    if (isCtrlOrCmd && (e.key === "p" || e.key === "P")) {
+      const editView = document.getElementById("view-editor");
+      if (editView && editView.style.display !== "none") {
+        e.preventDefault();
+        exportCurrentNoteToPdf();
+        return;
+      }
+    }
+  });
 }
 
 // Global click handlers for multi-select dropdown closing and Markdown preview link interception

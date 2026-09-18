@@ -23,11 +23,11 @@
     </div>
     
     <nav class="sidebar-menu">
-      <div id="menu-experiments" class="menu-item active" onclick="viewAllProjects()">
-        <span>📚</span> すべての実験ノート
-      </div>
       <div id="menu-protocols" class="menu-item" onclick="switchTab('protocols')">
         <span>📋</span> プロトコル原本一覧
+      </div>
+      <div id="menu-experiments" class="menu-item active" onclick="viewAllProjects()">
+        <span>📚</span> すべての実験ノート
       </div>
       <div class="menu-item" onclick="openEditorForNew()">
         <span>➕</span> 新規ノート作成
@@ -68,13 +68,19 @@
           </button>
           <span id="editor-page-heading" style="font-weight: 700; font-size: 1.05rem; margin-left: 4px;">実験ノート編集</span>
         </div>
+        <div id="proto-editor-nav-back" style="display: none; align-items: center; gap: 8px;">
+          <button class="btn btn-secondary" onclick="backToProtocolList()">
+            <span>⬅️</span> 一覧へ戻る
+          </button>
+          <span id="proto-editor-page-heading" style="font-weight: 700; font-size: 1.05rem; margin-left: 4px;">プロトコル編集</span>
+        </div>
       </div>
 
       <!-- Right side topbar actions -->
       <div class="top-actions" id="topbar-actions">
         <!-- Dashboard view actions -->
         <div id="actions-dashboard" style="display: flex; gap: 8px;">
-          <button class="btn btn-secondary" onclick="openNewProtocolModal()">
+          <button class="btn btn-secondary" onclick="openProtocolEditorForNew()">
             <span>📋</span> 新規プロトコル
           </button>
           <button class="btn btn-primary" onclick="openEditorForNew()">
@@ -94,6 +100,21 @@
             <span>📄</span> PDF出力
           </button>
         </div>
+
+        <!-- Protocol Editor view actions -->
+        <div id="actions-proto-editor" style="display: none; gap: 8px; align-items: center;">
+          <button id="btn-delete-proto" class="btn btn-danger" style="display: none;" onclick="deleteProtocolFromEditor()">
+            <span>🗑️</span> 削除
+          </button>
+          <button class="btn btn-primary" onclick="saveProtocolFromEditor()">
+            <span>💾</span> 保存する
+          </button>
+        </div>
+
+        <!-- Shortcuts Button -->
+        <button class="btn btn-secondary" onclick="openShortcutsModal()" title="キーボードショートカット一覧 (Ctrl + / or ?)" style="padding: 6px 10px;">
+          <span>⌨️ ショートカット</span>
+        </button>
       </div>
     </header>
 
@@ -176,7 +197,7 @@
                 </div>
               </div>
               <div class="form-group-compact">
-                <label>実施日</label>
+                <label>更新日</label>
                 <input type="date" id="input-date" class="form-input-compact">
               </div>
               <div class="form-group-compact">
@@ -223,7 +244,7 @@
           </div>
 
           <!-- Attachments Footer Bar -->
-          <div class="attachments-bar">
+          <div class="attachments-bar" id="attachments-bar">
             <div style="display: flex; align-items: center; gap: 10px; overflow-x: auto;">
               <strong style="font-size: 0.82rem; white-space: nowrap;">📎 添付データ:</strong>
               <div id="attachments-list" class="attachments-list">
@@ -231,7 +252,7 @@
               </div>
             </div>
             <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
-              <input type="file" id="file-upload-input" style="display: none;" onchange="uploadFile()">
+              <input type="file" id="file-upload-input" multiple style="display: none;" onchange="uploadFile()">
               <button class="btn btn-secondary" onclick="triggerFileUpload()" id="btn-upload-file" style="padding: 3px 8px; font-size: 0.78rem;">
                 ファイル追加
               </button>
@@ -257,7 +278,7 @@
                 選択解除
               </button>
             </div>
-            <button class="btn btn-primary" onclick="openNewProtocolModal()">
+            <button class="btn btn-primary" onclick="openProtocolEditorForNew()">
               <span>➕</span> 新規プロトコル登録
             </button>
           </div>
@@ -265,6 +286,113 @@
 
         <div id="protocols-grid" class="cards-grid">
           <!-- Dynamically populated -->
+        </div>
+      </section>
+
+      <!-- 4. Protocol Editor View (フル画面エディタ) -->
+      <section id="view-protocol-editor" style="display: none; height: 100%;">
+        <div class="editor-container">
+          <!-- Protocol Metadata Collapsed Minimal Bar (折り畳み時に表示) -->
+          <div id="proto-meta-collapsed-bar" class="editor-meta-collapsed-bar" style="display: none;">
+            <div class="editor-meta-summary-text">
+              <span id="collapsed-proto-id" style="font-weight: 600; color: var(--primary); font-family: monospace;">🏷️ ID</span>
+              <span style="color: var(--border);">|</span>
+              <span id="collapsed-proto-title" style="font-weight: 500; max-width: 380px; overflow: hidden; text-overflow: ellipsis;">タイトル未設定</span>
+              <span id="collapsed-proto-category" class="sidebar-badge-mini">🗂️ General</span>
+            </div>
+            <button type="button" class="btn-toggle-meta" onclick="toggleProtoEditorMetaCard()" title="管理ID〜タグのメタ情報を展開">
+              <span>▼ 上部情報を展開</span>
+            </button>
+          </div>
+
+          <!-- Protocol Metadata Card -->
+          <div class="editor-header-card" id="proto-header-card">
+            <div class="editor-header-card-header">
+              <button type="button" class="btn-toggle-meta" onclick="toggleProtoEditorMetaCard()" title="上部エリアを折り畳んでMarkdown表示領域を拡大">
+                <span>▲ 上部情報を折り畳む</span>
+              </button>
+            </div>
+            <!-- Row 1: Protocol ID (1/3) + Title (2/3) -->
+            <div class="form-row-1">
+              <div class="form-group-compact">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <label>管理ID (基本命名則: &lt;No.&gt;-&lt;name&gt;-yymmdd) *</label>
+                  <span id="btn-auto-proto-id" style="font-size: 0.72rem; color: var(--primary); cursor: pointer;" onclick="onAutoGenerateProtoIdClick()" title="管理IDを自動生成">⚡ 自動採番</span>
+                </div>
+                <input type="text" id="proto-edit-id-input" class="form-input-compact" placeholder="例: 01-PCR-260916">
+                <input type="hidden" id="proto-original-id" value="">
+              </div>
+              <div class="form-group-compact">
+                <label>プロトコル名 / タイトル *</label>
+                <input type="text" id="proto-edit-title" class="form-input-compact" placeholder="例: 標準PCR増幅プロトコル" oninput="onProtoEditorTitleInput(this.value)">
+              </div>
+            </div>
+
+            <!-- Row 2: Category (1/4) + Version (1/4) + Description (1/4) + Tags (1/4) -->
+            <div class="form-row-2">
+              <div class="form-group-compact">
+                <label>カテゴリ</label>
+                <input type="text" id="proto-edit-category" class="form-input-compact" placeholder="分子生物学" value="General" oninput="updateCollapsedProtoSummary()">
+              </div>
+              <div class="form-group-compact">
+                <label>バージョン</label>
+                <input type="text" id="proto-edit-version" class="form-input-compact" value="1.0">
+              </div>
+              <div class="form-group-compact">
+                <label>概要説明</label>
+                <input type="text" id="proto-edit-desc" class="form-input-compact" placeholder="この手順の概要や対象サンプル">
+              </div>
+              <div class="form-group-compact">
+                <label>タグ (カンマ区切り)</label>
+                <input type="text" id="proto-edit-tags" class="form-input-compact" placeholder="PCR, DNA, 標準法">
+              </div>
+            </div>
+          </div>
+
+          <!-- Maximized Editor Panes (Fullscreen toggleable) -->
+          <div class="editor-panes" id="proto-editor-panes">
+            <!-- Markdown Input Pane -->
+            <div class="editor-pane pane-input" id="proto-pane-input">
+              <div class="pane-header">
+                <span>Markdown 入力 (チェックリスト形式推奨)</span>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <button class="btn-fullscreen" id="btn-proto-fs-input" onclick="toggleFullscreenProtoInput()" title="全画面表示の切り替え">
+                    <svg viewBox="0 0 24 24" id="icon-proto-fs-input"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                  </button>
+                </div>
+              </div>
+              <textarea id="proto-markdown-input" class="editor-textarea" placeholder="## 目的・概要&#10;&#10;## 試薬・器具&#10;&#10;## 手順・プロトコル&#10;- [ ] ステップ1&#10;- [ ] ステップ2&#10;&#10;## 注意事項・コツ&#10;"></textarea>
+            </div>
+
+            <!-- Markdown Live Preview Pane -->
+            <div class="editor-pane pane-preview" id="proto-pane-preview">
+              <div class="pane-header">
+                <span>リアルタイム プレビュー</span>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <button class="btn-fullscreen" id="btn-proto-fs-preview" onclick="toggleFullscreenProtoPreview()" title="全画面表示の切り替え">
+                    <svg viewBox="0 0 24 24" id="icon-proto-fs-preview"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div id="proto-markdown-preview" class="preview-content"></div>
+            </div>
+          </div>
+
+          <!-- Attachments Footer Bar -->
+          <div class="attachments-bar" id="proto-attachments-bar">
+            <div style="display: flex; align-items: center; gap: 10px; overflow-x: auto;">
+              <strong style="font-size: 0.82rem; white-space: nowrap;">📎 参考ファイル:</strong>
+              <div id="proto-editor-attachments-list" class="attachments-list">
+                <span style="color: var(--text-muted); font-size: 0.78rem;">添付ファイルはありません</span>
+              </div>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
+              <input type="file" id="proto-editor-file-input" multiple style="display: none;" onchange="onProtoEditorFileSelected(event)">
+              <button type="button" class="btn btn-secondary" onclick="document.getElementById('proto-editor-file-input').click()" id="btn-proto-upload-file" style="padding: 3px 8px; font-size: 0.78rem;">
+                ファイル追加
+              </button>
+            </div>
+          </div>
         </div>
       </section>
     </main>
@@ -292,72 +420,7 @@
     </div>
   </div>
 
-  <!-- Protocol Modal (ID自動生成・編集・複製対応) -->
-  <div id="protocol-modal" class="modal-overlay">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3 style="font-size: 1.05rem; font-weight: 600;" id="proto-modal-title">新規プロトコル作成</h3>
-        <button onclick="closeModal('protocol-modal')" style="background:none; border:none; font-size: 1.2rem; cursor:pointer;">&times;</button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" id="proto-edit-id" value="">
-        <div style="display: flex; flex-direction: column; gap: 10px;">
-          <div class="form-group-compact">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <label>管理ID (基本命名則: &lt;No.&gt;-&lt;name&gt;-yymmdd) *</label>
-              <span style="font-size: 0.72rem; color: var(--primary); cursor: pointer;" onclick="autoGenerateProtocolId()" title="管理IDを自動生成">⚡ 自動採番</span>
-            </div>
-            <input type="text" id="proto-id-input" class="form-input-compact" placeholder="例: 01-PCR-260916">
-          </div>
-          <div class="form-group-compact">
-            <label>プロトコル名 / タイトル *</label>
-            <input type="text" id="proto-title" class="form-input-compact" placeholder="例: 標準PCR増幅プロトコル" oninput="onProtoTitleInput(this.value)">
-          </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-            <div class="form-group-compact">
-              <label>カテゴリ</label>
-              <input type="text" id="proto-category" class="form-input-compact" placeholder="分子生物学" value="General">
-            </div>
-            <div class="form-group-compact">
-              <label>バージョン</label>
-              <input type="text" id="proto-version" class="form-input-compact" value="1.0">
-            </div>
-          </div>
-          <div class="form-group-compact">
-            <label>概要説明</label>
-            <input type="text" id="proto-description" class="form-input-compact" placeholder="この手順の概要や対象サンプル">
-          </div>
-          <div class="form-group-compact">
-            <label>タグ (カンマ区切り)</label>
-            <input type="text" id="proto-tags" class="form-input-compact" placeholder="PCR, DNA, 標準法">
-          </div>
-          <div class="form-group-compact">
-            <label>手順内容 (Markdown, チェックリスト形式推奨)</label>
-            <textarea id="proto-content" class="form-input-compact" style="height: 150px; font-family: monospace;" placeholder="- [ ] 試薬Aを氷上で融解&#10;- [ ] 酵素Xを 0.5 µL 添加&#10;- [ ] サーマルサイクラー条件設定 (95℃ 30s / 58℃ 30s / 72℃ 1min)"></textarea>
-          </div>
-          <div class="form-group-compact">
-            <label>参考ファイルの添付 (PDF, 画像, 手順書等)</label>
-            <div class="proto-attachments-wrapper">
-              <div id="proto-attachments-list" class="proto-attachments-list">
-                <span style="color: var(--text-muted); font-size: 0.76rem;">添付ファイルはありません</span>
-              </div>
-              <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
-                <input type="file" id="proto-file-input" style="display: none;" multiple onchange="onProtoFileSelected(event)">
-                <button type="button" class="btn btn-secondary" onclick="document.getElementById('proto-file-input').click()" style="padding: 3px 8px; font-size: 0.78rem;">
-                  📎 ファイルを選択
-                </button>
-                <span id="proto-file-status" style="font-size: 0.74rem; color: var(--text-muted);">shared/protocols に関連付け保存されます</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeModal('protocol-modal')">キャンセル</button>
-        <button class="btn btn-primary" onclick="saveProtocolFromModal()">登録する</button>
-      </div>
-    </div>
-  </div>
+
 
   <!-- CSV Preview Modal -->
   <div id="csv-modal" class="modal-overlay">
@@ -370,6 +433,57 @@
       <div class="modal-footer" style="display: flex; justify-content: space-between;">
         <button class="btn btn-primary" id="btn-insert-csv-modal" onclick="insertCurrentCsvModalToEditor()">📋 Markdown表として本文に挿入</button>
         <button class="btn btn-secondary" onclick="closeModal('csv-modal')">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Keyboard Shortcuts Modal -->
+  <div id="shortcuts-modal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 540px;">
+      <div class="modal-header">
+        <h3 style="font-size: 1.05rem; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+          <span>⌨️</span> キーボードショートカット一覧
+        </h3>
+        <button onclick="closeModal('shortcuts-modal')" style="background:none; border:none; font-size: 1.2rem; cursor:pointer;">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 16px 20px;">
+        <table class="shortcuts-table">
+          <thead>
+            <tr>
+              <th style="width: 45%;">ショートカットキー</th>
+              <th>実行される操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><kbd>Ctrl</kbd> + <kbd>S</kbd></td>
+              <td><strong>保存</strong> (実験ノート / プロトコル)</td>
+            </tr>
+            <tr>
+              <td><kbd>Ctrl</kbd> + <kbd>Z</kbd></td>
+              <td><strong>ひとつ戻る / 元に戻す</strong> (入力欄: Undo / 画面: 一覧に戻る)</td>
+            </tr>
+            <tr>
+              <td><kbd>Shift</kbd> + <kbd>Ctrl</kbd> + <kbd>V</kbd></td>
+              <td><strong>プレーンテキスト貼り付け</strong> (表自動変換をスキップ)</td>
+            </tr>
+            <tr>
+              <td><kbd>Esc</kbd></td>
+              <td>開いているモーダルを閉じる</td>
+            </tr>
+            <tr>
+              <td><kbd>?</kbd> または <kbd>Ctrl</kbd> + <kbd>/</kbd></td>
+              <td>このショートカット一覧を開閉</td>
+            </tr>
+            <tr>
+              <td><kbd>Ctrl</kbd> + <kbd>P</kbd></td>
+              <td>実験ノートを PDF 印刷・出力</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: flex-end;">
+        <button class="btn btn-primary" onclick="closeModal('shortcuts-modal')">閉じる</button>
       </div>
     </div>
   </div>

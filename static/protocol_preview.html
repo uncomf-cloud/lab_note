@@ -304,6 +304,23 @@
       const mdBody = document.getElementById("proto-markdown-body");
       if (typeof marked !== "undefined" && proto.content) {
         mdBody.innerHTML = marked.parse(proto.content);
+
+        // プロトコル添付ファイル（画像・リンク）の相対パス解決
+        mdBody.querySelectorAll("img").forEach(img => {
+          const src = img.getAttribute("src");
+          if (src && !/^(https?:|\/\/|data:|#|\/api\/)/i.test(src)) {
+            const clean = src.replace(/^file:\/\/\/?/i, "").replace(/\\/g, "/");
+            const filename = clean.split("?")[0].split("#")[0].split("/").pop();
+            if (filename && proto.id) {
+              img.src = `/api/protocols/${encodeURIComponent(proto.id)}/files/${encodeURIComponent(filename)}`;
+            }
+          }
+        });
+
+        mdBody.querySelectorAll("a").forEach(a => {
+          a.setAttribute("target", "_blank");
+          a.setAttribute("rel", "noopener noreferrer");
+        });
       } else {
         mdBody.textContent = proto.content || "(手順内容は記載されていません)";
       }

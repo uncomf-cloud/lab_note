@@ -85,7 +85,7 @@ def _scan_experiments_in_project(project_id: str) -> List[Dict[str, Any]]:
             if not note_file.exists():
                 continue
             try:
-                post = frontmatter.load(str(note_file))
+                post = frontmatter.load(str(note_file), encoding="utf-8")
                 meta = post.metadata or {}
                 status = meta.get("status", default_status)
                 if status not in VALID_STATUSES:
@@ -100,8 +100,8 @@ def _scan_experiments_in_project(project_id: str) -> List[Dict[str, Any]]:
                     "dir_path": str(e_dir)
                 })
                 seen_ids.add(e_dir.name)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[WARN] Error loading {note_file}: {e}")
 
     # Legacy: direct child folders in experiments/ (excluding predata, in_progress, completed)
     for e_dir in exp_dir.iterdir():
@@ -111,7 +111,7 @@ def _scan_experiments_in_project(project_id: str) -> List[Dict[str, Any]]:
         if not note_file.exists():
             continue
         try:
-            post = frontmatter.load(str(note_file))
+            post = frontmatter.load(str(note_file), encoding="utf-8")
             meta = post.metadata or {}
             status = meta.get("status", STATUS_IN_PROGRESS)
             if status not in VALID_STATUSES:
@@ -126,8 +126,8 @@ def _scan_experiments_in_project(project_id: str) -> List[Dict[str, Any]]:
                 "dir_path": str(e_dir)
             })
             seen_ids.add(e_dir.name)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] Error loading legacy {note_file}: {e}")
 
     exp_items.sort(key=_exp_sort_key)
     return exp_items
@@ -155,7 +155,7 @@ def migrate_experiments_to_status_dirs() -> Dict[str, int]:
             if not note_file.exists():
                 continue
             try:
-                post = frontmatter.load(str(note_file))
+                post = frontmatter.load(str(note_file), encoding="utf-8")
                 meta = post.metadata or {}
                 status = meta.get("status", STATUS_IN_PROGRESS)
                 if status not in VALID_STATUSES:
@@ -290,7 +290,7 @@ def list_protocols() -> List[Dict[str, Any]]:
 
     for file_path in SHARED_PROTOCOLS_DIR.glob("*.md"):
         try:
-            post = frontmatter.load(str(file_path))
+            post = frontmatter.load(str(file_path), encoding="utf-8")
             meta = post.metadata or {}
             protocol_id = file_path.stem
 
@@ -331,7 +331,7 @@ def get_protocol(protocol_id: str) -> Optional[Dict[str, Any]]:
     if not file_path.exists():
         return None
     
-    post = frontmatter.load(str(file_path))
+    post = frontmatter.load(str(file_path), encoding="utf-8")
     meta = post.metadata or {}
 
     # Find attachments in shared/protocols: {protocol_id}-ref* or legacy {protocol_id}_*
@@ -513,7 +513,7 @@ def list_experiments(
                 content_text = ""
                 try:
                     if note_path.exists():
-                        post = frontmatter.load(str(note_path))
+                        post = frontmatter.load(str(note_path), encoding="utf-8")
                         content_text = post.content.lower()
                 except Exception:
                     pass
@@ -539,7 +539,7 @@ def get_experiment(project_id: str, experiment_id: str) -> Optional[Dict[str, An
     if not note_path.exists():
         return None
     
-    post = frontmatter.load(str(note_path))
+    post = frontmatter.load(str(note_path), encoding="utf-8")
     meta = post.metadata or {}
     status = meta.get("status", STATUS_IN_PROGRESS)
     if status not in VALID_STATUSES:
@@ -715,7 +715,7 @@ def update_experiment(
     if not note_path.exists():
         return None
         
-    existing = frontmatter.load(str(note_path))
+    existing = frontmatter.load(str(note_path), encoding="utf-8")
     meta = existing.metadata or {}
     
     if status not in VALID_STATUSES:
