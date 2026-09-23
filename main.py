@@ -297,7 +297,11 @@ async def get_attachment_file(project_id: str, experiment_id: str, filename: str
         raise HTTPException(status_code=404, detail="Experiment not found")
     target_path = exp_dir / filename
     if not target_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
+        rawdata_target = exp_dir / "rawdata" / filename
+        if rawdata_target.exists():
+            target_path = rawdata_target
+        else:
+            raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(str(target_path))
 
 @app.delete("/api/projects/{project_id}/experiments/{experiment_id}/files/{filename}")
@@ -314,7 +318,11 @@ async def preview_csv(project_id: str, experiment_id: str, filename: str, limit:
         raise HTTPException(status_code=404, detail="Experiment not found")
     target_path = exp_dir / filename
     if not target_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
+        rawdata_target = exp_dir / "rawdata" / filename
+        if rawdata_target.exists():
+            target_path = rawdata_target
+        else:
+            raise HTTPException(status_code=404, detail="File not found")
     
     try:
         rows = []

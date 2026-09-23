@@ -501,6 +501,9 @@ def list_experiments(
             note_path = exp_dir / "note.md"
             
             attachments = [f.name for f in exp_dir.iterdir() if f.is_file() and f.name != "note.md"]
+            rawdata_dir = exp_dir / "rawdata"
+            if rawdata_dir.exists() and rawdata_dir.is_dir():
+                attachments.extend([f.name for f in rawdata_dir.iterdir() if f.is_file()])
             item["project_id"] = p_id
             item["attachment_count"] = len(attachments)
             
@@ -546,6 +549,7 @@ def get_experiment(project_id: str, experiment_id: str) -> Optional[Dict[str, An
         status = STATUS_IN_PROGRESS
     
     attachments = []
+    # 1. Direct attachments in experiment root
     for f in exp_dir.iterdir():
         if f.is_file() and f.name != "note.md":
             attachments.append({
@@ -556,6 +560,20 @@ def get_experiment(project_id: str, experiment_id: str) -> Optional[Dict[str, An
                 "is_pdf": f.suffix.lower() == ".pdf",
                 "rel_path": f"/api/projects/{project_id}/experiments/{experiment_id}/files/{f.name}"
             })
+            
+    # 2. Rawdata and analysis images in rawdata/ subdirectory
+    rawdata_dir = exp_dir / "rawdata"
+    if rawdata_dir.exists() and rawdata_dir.is_dir():
+        for f in rawdata_dir.iterdir():
+            if f.is_file():
+                attachments.append({
+                    "filename": f.name,
+                    "size": f.stat().st_size,
+                    "is_image": f.suffix.lower() in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"],
+                    "is_csv": f.suffix.lower() in [".csv", ".tsv"],
+                    "is_pdf": f.suffix.lower() == ".pdf",
+                    "rel_path": f"/api/projects/{project_id}/experiments/{experiment_id}/files/{f.name}"
+                })
             
     return {
         "id": experiment_id,
@@ -773,11 +791,15 @@ def save_attachment(project_id: str, experiment_id: str, filename: str, data: by
     return safe_name
 
 def delete_attachment(project_id: str, experiment_id: str, filename: str) -> bool:
-    """Delete an attachment from the experiment directory."""
+    """Delete an attachment from the experiment directory or its rawdata subdirectory."""
     exp_dir = _find_experiment_dir(project_id, experiment_id)
     if not exp_dir or not exp_dir.exists():
         return False
     target_path = exp_dir / filename
+    if not target_path.exists():
+        rawdata_target = exp_dir / "rawdata" / filename
+        if rawdata_target.exists():
+            target_path = rawdata_target
     if target_path.exists() and target_path.is_file() and filename != "note.md":
         target_path.unlink()
         return True
