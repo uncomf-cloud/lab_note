@@ -6,7 +6,7 @@
   <title>電子実験ノート</title>
   <link rel="icon" type="image/png" href="/static/app_icon.png">
   <link rel="shortcut icon" href="/favicon.ico">
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/style.css?v=20260925_01">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
@@ -246,7 +246,7 @@
           <!-- Attachments Footer Bar -->
           <div class="attachments-bar" id="attachments-bar">
             <div style="display: flex; align-items: center; gap: 10px; overflow-x: auto;">
-              <strong style="font-size: 0.82rem; white-space: nowrap;">📎 添付データ:</strong>
+              <strong style="font-size: 0.82rem; white-space: nowrap;">📎 添付データ <span id="attachments-count-badge" style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"></span>:</strong>
               <div id="attachments-list" class="attachments-list">
                 <span style="color: var(--text-muted); font-size: 0.78rem;">保存後にファイルを添付できます</span>
               </div>
@@ -488,6 +488,6 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js"></script>
+  <script src="/static/js/app.js?v=20260925_02"></script>
 </body>
 </html>

@@ -290,39 +290,61 @@ async def upload_attachment(project_id: str, experiment_id: str, file: UploadFil
     saved_name = storage.save_attachment(project_id, experiment_id, file.filename, contents)
     return {"message": "File uploaded", "filename": saved_name}
 
-@app.get("/api/projects/{project_id}/experiments/{experiment_id}/files/{filename}")
+@app.get("/api/projects/{project_id}/experiments/{experiment_id}/files/{filename:path}")
 async def get_attachment_file(project_id: str, experiment_id: str, filename: str):
     exp_dir = storage._find_experiment_dir(project_id, experiment_id)
     if not exp_dir or not exp_dir.exists():
         raise HTTPException(status_code=404, detail="Experiment not found")
+    
+    clean_filename = Path(filename).name
+    # Search order: 1. direct relative path, 2. figures/ (plots), 3. rawdata/ (raw measurements), 4. direct filename
     target_path = exp_dir / filename
     if not target_path.exists():
-        rawdata_target = exp_dir / "rawdata" / filename
-        if rawdata_target.exists():
-            target_path = rawdata_target
+        figures_target = exp_dir / "figures" / clean_filename
+        if figures_target.exists():
+            target_path = figures_target
         else:
-            raise HTTPException(status_code=404, detail="File not found")
+            rawdata_target = exp_dir / "rawdata" / clean_filename
+            if rawdata_target.exists():
+                target_path = rawdata_target
+            else:
+                direct_target = exp_dir / clean_filename
+                if direct_target.exists():
+                    target_path = direct_target
+                else:
+                    raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(str(target_path))
 
-@app.delete("/api/projects/{project_id}/experiments/{experiment_id}/files/{filename}")
+@app.delete("/api/projects/{project_id}/experiments/{experiment_id}/files/{filename:path}")
 async def delete_attachment_file(project_id: str, experiment_id: str, filename: str):
-    success = storage.delete_attachment(project_id, experiment_id, filename)
+    clean_filename = Path(filename).name
+    success = storage.delete_attachment(project_id, experiment_id, clean_filename)
     if not success:
         raise HTTPException(status_code=404, detail="File not found or protected")
     return {"message": "File deleted"}
 
-@app.get("/api/projects/{project_id}/experiments/{experiment_id}/preview-csv/{filename}")
+@app.get("/api/projects/{project_id}/experiments/{experiment_id}/preview-csv/{filename:path}")
 async def preview_csv(project_id: str, experiment_id: str, filename: str, limit: int = 100):
     exp_dir = storage._find_experiment_dir(project_id, experiment_id)
     if not exp_dir or not exp_dir.exists():
         raise HTTPException(status_code=404, detail="Experiment not found")
+    
+    clean_filename = Path(filename).name
     target_path = exp_dir / filename
     if not target_path.exists():
-        rawdata_target = exp_dir / "rawdata" / filename
+        rawdata_target = exp_dir / "rawdata" / clean_filename
         if rawdata_target.exists():
             target_path = rawdata_target
         else:
-            raise HTTPException(status_code=404, detail="File not found")
+            figures_target = exp_dir / "figures" / clean_filename
+            if figures_target.exists():
+                target_path = figures_target
+            else:
+                direct_target = exp_dir / clean_filename
+                if direct_target.exists():
+                    target_path = direct_target
+                else:
+                    raise HTTPException(status_code=404, detail="File not found")
     
     try:
         rows = []

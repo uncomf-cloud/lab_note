@@ -80,6 +80,7 @@ let hiddenProjects = new Set(JSON.parse(localStorage.getItem("lab_note_hidden_pr
 // Active state in editor
 let currentEditingProjectId = null;
 let currentEditingExpId = null;
+let currentEditingAttachments = [];
 
 // Fullscreen states
 let isFullscreenInput = false;
@@ -1904,15 +1905,34 @@ function renderAttachments(attachments) {
   const container = document.getElementById("attachments-list");
   if (!container) return;
 
-  if (attachments.length === 0) {
+  currentEditingAttachments = attachments || [];
+
+  const validAttachments = currentEditingAttachments.filter(
+    (att) => att && att.filename && !att.filename.startsWith(".")
+  );
+
+  const countBadge = document.getElementById("attachments-count-badge");
+  if (countBadge) {
+    countBadge.textContent = validAttachments.length > 0 ? `(${validAttachments.length})` : "";
+  }
+
+  if (validAttachments.length === 0) {
     container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.78rem;">なし (ファイルをここにドラッグ＆ドロップして追加)</span>';
     return;
   }
 
-  container.innerHTML = attachments
+  container.innerHTML = validAttachments
     .map((att) => {
       let icon = "📄";
       let actionBtn = "";
+      
+      let sourceBadge = "";
+      if (att.source === "figures") {
+        sourceBadge = `<span style="font-size: 0.65rem; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 3px; font-weight: 600; border: 1px solid #bae6fd;">解析図</span>`;
+      } else if (att.source === "rawdata") {
+        sourceBadge = `<span style="font-size: 0.65rem; background: #fef3c7; color: #b45309; padding: 1px 4px; border-radius: 3px; font-weight: 600; border: 1px solid #fde68a;">生データ</span>`;
+      }
+
       if (att.is_image) {
         icon = "🖼️";
         actionBtn = `<a href="${att.rel_path}" target="_blank" class="btn btn-secondary" style="padding: 1px 5px; font-size: 0.72rem;">拡大</a>`;
@@ -1929,8 +1949,9 @@ function renderAttachments(attachments) {
            ondragend="handleAttachmentDragEnd(event)"
            title="ドラッグしてMarkdownに挿入できます（画像は図として、CSV/TSVはMarkdown表として挿入）">
         <span style="font-size: 0.95rem;">${icon}</span>
-        <a href="${att.rel_path}" download style="color: var(--text-main); text-decoration: none; font-weight: 500;">
-          ${att.filename}
+        ${sourceBadge}
+        <a href="${att.rel_path}" download style="color: var(--text-main); text-decoration: none; font-weight: 500; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(att.filename)}">
+          ${escapeHtml(att.filename)}
         </a>
         ${actionBtn}
         <button type="button" class="btn btn-secondary" style="padding: 1px 5px; font-size: 0.72rem;"

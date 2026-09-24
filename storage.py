@@ -500,10 +500,13 @@ def list_experiments(
             exp_dir = Path(item["dir_path"])
             note_path = exp_dir / "note.md"
             
-            attachments = [f.name for f in exp_dir.iterdir() if f.is_file() and f.name != "note.md"]
+            attachments = [f.name for f in exp_dir.iterdir() if f.is_file() and f.name != "note.md" and not f.name.startswith(".")]
             rawdata_dir = exp_dir / "rawdata"
             if rawdata_dir.exists() and rawdata_dir.is_dir():
-                attachments.extend([f.name for f in rawdata_dir.iterdir() if f.is_file()])
+                attachments.extend([f.name for f in rawdata_dir.iterdir() if f.is_file() and not f.name.startswith(".")])
+            figures_dir = exp_dir / "figures"
+            if figures_dir.exists() and figures_dir.is_dir():
+                attachments.extend([f.name for f in figures_dir.iterdir() if f.is_file() and not f.name.startswith(".")])
             item["project_id"] = p_id
             item["attachment_count"] = len(attachments)
             
@@ -549,31 +552,53 @@ def get_experiment(project_id: str, experiment_id: str) -> Optional[Dict[str, An
         status = STATUS_IN_PROGRESS
     
     attachments = []
-    # 1. Direct attachments in experiment root
-    for f in exp_dir.iterdir():
-        if f.is_file() and f.name != "note.md":
-            attachments.append({
-                "filename": f.name,
-                "size": f.stat().st_size,
-                "is_image": f.suffix.lower() in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"],
-                "is_csv": f.suffix.lower() in [".csv", ".tsv"],
-                "is_pdf": f.suffix.lower() == ".pdf",
-                "rel_path": f"/api/projects/{project_id}/experiments/{experiment_id}/files/{f.name}"
-            })
-            
-    # 2. Rawdata and analysis images in rawdata/ subdirectory
-    rawdata_dir = exp_dir / "rawdata"
-    if rawdata_dir.exists() and rawdata_dir.is_dir():
-        for f in rawdata_dir.iterdir():
-            if f.is_file():
+    seen_filenames = set()
+
+    # 1. Analysis plots and figures in figures/ subdirectory
+    figures_dir = exp_dir / "figures"
+    if figures_dir.exists() and figures_dir.is_dir():
+        for f in figures_dir.iterdir():
+            if f.is_file() and not f.name.startswith(".") and f.name not in seen_filenames:
+                seen_filenames.add(f.name)
                 attachments.append({
                     "filename": f.name,
                     "size": f.stat().st_size,
                     "is_image": f.suffix.lower() in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"],
                     "is_csv": f.suffix.lower() in [".csv", ".tsv"],
                     "is_pdf": f.suffix.lower() == ".pdf",
+                    "source": "figures",
                     "rel_path": f"/api/projects/{project_id}/experiments/{experiment_id}/files/{f.name}"
                 })
+
+    # 2. Raw measurement data in rawdata/ subdirectory
+    rawdata_dir = exp_dir / "rawdata"
+    if rawdata_dir.exists() and rawdata_dir.is_dir():
+        for f in rawdata_dir.iterdir():
+            if f.is_file() and not f.name.startswith(".") and f.name not in seen_filenames:
+                seen_filenames.add(f.name)
+                attachments.append({
+                    "filename": f.name,
+                    "size": f.stat().st_size,
+                    "is_image": f.suffix.lower() in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"],
+                    "is_csv": f.suffix.lower() in [".csv", ".tsv"],
+                    "is_pdf": f.suffix.lower() == ".pdf",
+                    "source": "rawdata",
+                    "rel_path": f"/api/projects/{project_id}/experiments/{experiment_id}/files/{f.name}"
+                })
+
+    # 3. Direct attachments in experiment root
+    for f in exp_dir.iterdir():
+        if f.is_file() and f.name != "note.md" and not f.name.startswith(".") and f.name not in seen_filenames:
+            seen_filenames.add(f.name)
+            attachments.append({
+                "filename": f.name,
+                "size": f.stat().st_size,
+                "is_image": f.suffix.lower() in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"],
+                "is_csv": f.suffix.lower() in [".csv", ".tsv"],
+                "is_pdf": f.suffix.lower() == ".pdf",
+                "source": "root",
+                "rel_path": f"/api/projects/{project_id}/experiments/{experiment_id}/files/{f.name}"
+            })
             
     return {
         "id": experiment_id,
@@ -778,29 +803,43 @@ def delete_experiment(project_id: str, experiment_id: str) -> bool:
     return False
 
 def save_attachment(project_id: str, experiment_id: str, filename: str, data: bytes) -> str:
-    """Save an uploaded file to the experiment directory."""
+    """Save an uploaded file to the experiment directory (images to figures/, others to root)."""
     exp_dir = _find_experiment_dir(project_id, experiment_id)
     if not exp_dir or not exp_dir.exists():
         exp_dir = _get_status_dir(project_id, STATUS_IN_PROGRESS) / experiment_id
         exp_dir.mkdir(parents=True, exist_ok=True)
         
     safe_name = _slugify(Path(filename).stem) + Path(filename).suffix
-    dest_path = exp_dir / safe_name
+    suffix = Path(filename).suffix.lower()
+    if suffix in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]:
+        figures_dir = exp_dir / "figures"
+        figures_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = figures_dir / safe_name
+    else:
+        dest_path = exp_dir / safe_name
     with open(dest_path, "wb") as f:
         f.write(data)
     return safe_name
 
 def delete_attachment(project_id: str, experiment_id: str, filename: str) -> bool:
     """Delete an attachment from the experiment directory or its rawdata subdirectory."""
+    if not filename or filename == "note.md" or filename.startswith("."):
+        return False
     exp_dir = _find_experiment_dir(project_id, experiment_id)
     if not exp_dir or not exp_dir.exists():
         return False
     target_path = exp_dir / filename
     if not target_path.exists():
-        rawdata_target = exp_dir / "rawdata" / filename
-        if rawdata_target.exists():
-            target_path = rawdata_target
-    if target_path.exists() and target_path.is_file() and filename != "note.md":
+        figures_target = exp_dir / "figures" / filename
+        if figures_target.exists():
+            target_path = figures_target
+        else:
+            rawdata_target = exp_dir / "rawdata" / filename
+            if rawdata_target.exists():
+                if STATUS_COMPLETED in str(exp_dir).replace("\\", "/"):
+                    return False
+                target_path = rawdata_target
+    if target_path.exists() and target_path.is_file():
         target_path.unlink()
         return True
     return False
