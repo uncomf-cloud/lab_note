@@ -649,6 +649,8 @@ def create_experiment(
         
     exp_dir = target_parent_dir / exp_id
     exp_dir.mkdir(parents=True, exist_ok=True)
+    (exp_dir / "rawdata").mkdir(parents=True, exist_ok=True)
+    (exp_dir / "figures").mkdir(parents=True, exist_ok=True)
     
     content = initial_content
     if not content:
