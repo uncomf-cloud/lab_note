@@ -20,6 +20,7 @@
   - サブエージェントやユーザーが `![タイトル](filename.png)` や `![タイトル](./filename.png)` のように相対パスで記述した画像は、プレビュー表示時にフロントエンドで `/api/projects/{project_id}/experiments/{experiment_id}/files/{filename}` へ自動解決・リライトされる。
 - **AI・Antigravity連携**: `mcp_server.py` による MCP (Model Context Protocol) ツール群の提供（AIエージェントからのノート自動作成・参照・更新）。
   - サブエージェントが画像を作成した際は、必ず該当の実験ノートフォルダ直下（`experiments/{status}/{experiment_id}/`）に配置し、Markdown 本文には相対パス（`![解析図](image.png)`）で記述する。
+  - サブエージェントが実験ノートやプロトコルを記述する際、決定係数（$R^2$）、有意確率（$p < 0.05$）、希釈式（$C_1V_1 = C_2V_2$）、化学式等の数式・変数は、必ず **LaTeX 記法（インライン: `$R^2 = 0.9996$`, ブロック: `$$ ... $$`）** で記述する。Unicode 上付き文字（`²`）や HTML タグ（`<sup>`）は使用しない。
 
 ---
 

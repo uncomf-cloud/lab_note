@@ -1118,8 +1118,39 @@ function resolveExperimentFileUrl(url, projectId, expId) {
   return `/api/projects/${encodeURIComponent(projectId)}/experiments/${encodeURIComponent(expId)}/files/${encodeURIComponent(filename)}`;
 }
 
+// KaTeX 数式自動レンダラーヘルパー（AIエージェント出力の $R^2=0.9996$ などを確実に描画）
+function renderKatexSafely(container) {
+  if (typeof renderMathInElement === "function" && container) {
+    try {
+      renderMathInElement(container, {
+        delimiters: [
+          { left: "$$", right: "$$", display: true },
+          { left: "$", right: "$", display: false },
+          { left: "\\(", right: "\\)", display: false },
+          { left: "\\[", right: "\\]", display: true }
+        ],
+        throwOnError: false
+      });
+    } catch (e) {
+      console.warn("renderMathInElement error", e);
+    }
+  }
+}
+
 function initMarkedRenderer() {
   if (typeof marked === "undefined") return;
+
+  // KaTeX 数式拡張の登録（Markdownパーサー段階で数式トークンを保護・レンダリング）
+  try {
+    const katexExt = (typeof createKatexExtension === "function")
+      ? createKatexExtension({ throwOnError: false, nonStandard: true })
+      : (typeof markedKatex === "function" ? markedKatex({ throwOnError: false, nonStandard: true }) : null);
+    if (katexExt) {
+      marked.use(katexExt);
+    }
+  } catch (e) {
+    console.warn("marked-katex-extension setup warning", e);
+  }
 
   const customRenderer = {
     image(tokenOrHref, title, text) {
@@ -1171,6 +1202,7 @@ function updatePreview() {
 
   if (typeof marked !== "undefined") {
     previewContainer.innerHTML = marked.parse(markdownText);
+    renderKatexSafely(previewContainer);
 
     // 画像URLのフォールバック補正（HTML直書き <img> や動的パスの完全カバー）
     previewContainer.querySelectorAll("img").forEach((img) => {
@@ -2386,6 +2418,7 @@ function updateProtoPreview() {
 
   if (typeof marked !== "undefined") {
     previewContainer.innerHTML = marked.parse(markdownText);
+    renderKatexSafely(previewContainer);
   } else {
     previewContainer.textContent = markdownText;
   }

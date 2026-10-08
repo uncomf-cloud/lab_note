@@ -8,6 +8,11 @@
   <link rel="shortcut icon" href="/favicon.ico">
   <link rel="stylesheet" href="/static/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- KaTeX & marked-katex-extension for math formulas (e.g. $R^2 = 0.9996$) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked-katex-extension@1.0.2/lib/index.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
   <style>
     body {
       background-color: #f1f5f9;
@@ -303,7 +308,35 @@
       // Markdown Content
       const mdBody = document.getElementById("proto-markdown-body");
       if (typeof marked !== "undefined" && proto.content) {
+        try {
+          const katexExt = (typeof createKatexExtension === "function")
+            ? createKatexExtension({ throwOnError: false, nonStandard: true })
+            : (typeof markedKatex === "function" ? markedKatex({ throwOnError: false, nonStandard: true }) : null);
+          if (katexExt) {
+            marked.use(katexExt);
+          }
+        } catch (e) {
+          console.warn("marked-katex-extension setup warning", e);
+        }
+
         mdBody.innerHTML = marked.parse(proto.content);
+
+        // KaTeX auto-render fallback for remaining math expressions
+        if (typeof renderMathInElement === "function") {
+          try {
+            renderMathInElement(mdBody, {
+              delimiters: [
+                { left: "$$", right: "$$", display: true },
+                { left: "$", right: "$", display: false },
+                { left: "\\(", right: "\\)", display: false },
+                { left: "\\[", right: "\\]", display: true }
+              ],
+              throwOnError: false
+            });
+          } catch (e) {
+            console.warn("renderMathInElement error", e);
+          }
+        }
 
         // プロトコル添付ファイル（画像・リンク）の相対パス解決
         mdBody.querySelectorAll("img").forEach(img => {

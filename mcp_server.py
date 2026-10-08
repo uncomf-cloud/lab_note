@@ -85,7 +85,7 @@ def save_protocol(
     Args:
         protocol_id: Unique slug ID using lowercase letters and underscores (e.g. 'sdf4_cross_ip_wb', 'standard_pcr').
         title: Human-readable official title of the protocol (e.g. 'SDF4抗原同定および交差性検証IP-WBプロトコル').
-        content: Step-by-step checklist Markdown content using '- [ ]' for each procedure.
+        content: Step-by-step checklist Markdown content using '- [ ]' for each procedure. Math and statistical metrics (e.g. $R^2 = 0.9996$, $p < 0.05$) should be written in standard LaTeX notation ($...$ or $$...$$).
         category: Protocol category (e.g. '分子生物学', '免疫測定', '生化学', '細胞培養', 'タンパク質精製').
         version: Version string (default '1.0').
         author: Author or agent name (e.g. 'protocol-designer').
@@ -235,7 +235,7 @@ def create_experiment(
         author: Experimenter or agent name.
         tags: List of searchable keyword tags.
         summary: Brief summary of the experiment objective.
-        content: Optional custom Markdown body. If omitted and protocol_id is given, protocol content is used.
+        content: Optional custom Markdown body. If omitted and protocol_id is given, protocol content is used. Math and statistical metrics (e.g. $R^2 = 0.9996$, $p < 0.05$) should be written in LaTeX notation ($...$ or $$...$$).
     """
     try:
         proto_id = protocol_id if protocol_id else None
@@ -277,7 +277,7 @@ def update_experiment(
         project_id: Project identifier (e.g. 'B02_SDF4', '01_tNP_assay').
         experiment_id: Experiment directory name.
         title: Updated title.
-        content: Updated Markdown body (observations, results, discussion).
+        content: Updated Markdown body (observations, results, discussion). Math and statistical metrics (e.g. $R^2 = 0.9996$, $p < 0.05$) should be written in LaTeX notation ($...$ or $$...$$).
         status: Progress status ('in_progress', 'completed').
         author: Experimenter or agent name.
         tags: List of tags.
